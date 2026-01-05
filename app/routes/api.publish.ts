@@ -15,12 +15,9 @@ interface CloudflareEnv {
  *
  * Publishes project files to Cloudflare Pages via Direct Upload API.
  *
- * TODO: The Cloudflare Pages Direct Upload API requires a multi-step process:
- * 1. Create upload session
- * 2. Upload files as form data
- * 3. Create deployment
- * This MVP implementation provides the endpoint structure - full implementation
- * may need adjustment based on actual API requirements.
+ * NOTE: The Cloudflare Pages Direct Upload API uses FormData with:
+ * - A "manifest" field containing JSON object mapping file paths to empty strings
+ * - Individual file fields where field name is the file path and value is file content
  */
 export async function action({ context, request }: ActionFunctionArgs) {
   const env = context.cloudflare.env as CloudflareEnv;
@@ -68,21 +65,23 @@ export async function action({ context, request }: ActionFunctionArgs) {
     /**
      * Step 2: Create a deployment with direct upload.
      *
-     * Note: This uses the simplified deployment endpoint.
-     * For larger projects, the multi-part upload flow should be used.
+     * Cloudflare Pages Direct Upload expects:
+     * - manifest: JSON object with file paths as keys, empty strings as values
+     * - individual files: FormData parts with file path as field name
      */
     const formData = new FormData();
 
-    // add manifest
+    // build manifest with empty string values (per CF API spec)
     const manifest: Record<string, string> = {};
 
     for (const [filePath, content] of Object.entries(files)) {
-      const normalizedPath = filePath.startsWith('/') ? filePath.slice(1) : filePath;
-      const hash = await hashContent(content);
-      manifest[normalizedPath] = hash;
+      // normalize path to include leading slash (required by CF Pages)
+      const normalizedPath = filePath.startsWith('/') ? filePath : `/${filePath}`;
+      manifest[normalizedPath] = '';
 
-      // add file as blob
-      formData.append(hash, new Blob([content], { type: 'application/octet-stream' }), normalizedPath);
+      // add file content - use path as field name
+      const contentType = getContentType(normalizedPath);
+      formData.append(normalizedPath, new Blob([content], { type: contentType }), normalizedPath);
     }
 
     formData.append('manifest', JSON.stringify(manifest));
@@ -122,13 +121,29 @@ export async function action({ context, request }: ActionFunctionArgs) {
 }
 
 /**
- * Simple hash function for file content (used for manifest).
+ * Get content type based on file extension.
  */
-async function hashContent(content: string): Promise<string> {
-  const encoder = new TextEncoder();
-  const data = encoder.encode(content);
-  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
-  const hashArray = Array.from(new Uint8Array(hashBuffer));
+function getContentType(filePath: string): string {
+  const ext = filePath.split('.').pop()?.toLowerCase() || '';
+  const mimeTypes: Record<string, string> = {
+    html: 'text/html',
+    htm: 'text/html',
+    css: 'text/css',
+    js: 'application/javascript',
+    mjs: 'application/javascript',
+    json: 'application/json',
+    png: 'image/png',
+    jpg: 'image/jpeg',
+    jpeg: 'image/jpeg',
+    gif: 'image/gif',
+    svg: 'image/svg+xml',
+    ico: 'image/x-icon',
+    woff: 'font/woff',
+    woff2: 'font/woff2',
+    ttf: 'font/ttf',
+    txt: 'text/plain',
+    xml: 'application/xml',
+  };
 
-  return hashArray.map((b) => b.toString(16).padStart(2, '0')).join('');
+  return mimeTypes[ext] || 'application/octet-stream';
 }
