@@ -69,6 +69,18 @@ export function Layout({ children }: { children: React.ReactNode }) {
     document.querySelector('html')?.setAttribute('data-theme', theme);
   }, [theme]);
 
+  /**
+   * Verify crossOriginIsolated is enabled (required for SharedArrayBuffer/WebContainers).
+   */
+  useEffect(() => {
+    if (typeof window !== 'undefined' && !window.crossOriginIsolated) {
+      console.warn(
+        'crossOriginIsolated is not enabled. SharedArrayBuffer may not work. ' +
+          'Ensure COOP/COEP headers are set correctly.',
+      );
+    }
+  }, []);
+
   return (
     <>
       {children}

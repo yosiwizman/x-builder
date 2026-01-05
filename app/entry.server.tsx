@@ -68,8 +68,11 @@ export default async function handleRequest(
 
   responseHeaders.set('Content-Type', 'text/html');
 
-  responseHeaders.set('Cross-Origin-Embedder-Policy', 'require-corp');
+  /**
+   * Enable crossOriginIsolated for SharedArrayBuffer (required by WebContainers).
+   */
   responseHeaders.set('Cross-Origin-Opener-Policy', 'same-origin');
+  responseHeaders.set('Cross-Origin-Embedder-Policy', 'credentialless');
 
   return new Response(body, {
     headers: responseHeaders,
