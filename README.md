@@ -6,9 +6,13 @@ AI-powered full-stack web development in the browser.
 
 > **Based on [Bolt.new](https://github.com/stackblitz/bolt.new)** - the open-source AI web development agent by StackBlitz.
 
-## Staging
+## Production
 
-🚀 **Staging URL**: https://x-builder-staging.pages.dev
+🚀 **Live URL**: https://x-builder-staging.pages.dev
+
+**Status**: Production (Cloudflare Pages)
+
+> **Note**: Custom domain can be added later without downtime.
 
 ## About
 
@@ -55,11 +59,27 @@ pnpm run dev
 
 ### Deployment
 
-Staging deploys automatically from `main` branch via GitHub Actions to Cloudflare Pages.
+Production deploys automatically from `main` branch via GitHub Actions to Cloudflare Pages.
 
 Required GitHub Secrets:
 - `CLOUDFLARE_API_TOKEN` - Cloudflare API token with Pages edit permissions
 - `CLOUDFLARE_ACCOUNT_ID` - Your Cloudflare account ID
+
+### Release Process
+
+```
+1. Create a Pull Request with your changes
+2. CI runs automatically (lint, typecheck, tests)
+3. CI must pass before merge is allowed
+4. Merge PR to main
+5. Auto-deploy to production (Cloudflare Pages)
+```
+
+**Safeguards**:
+- Branch protection requires PR reviews
+- All CI checks must pass
+- Direct pushes to `main` are blocked
+- Linear history enforced
 
 ## Attribution
 
