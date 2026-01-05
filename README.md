@@ -37,6 +37,22 @@ X Builder is a white-label fork of Bolt.new that allows you to prompt, run, edit
 
 ## Technical Notes
 
+### MVP Publish (Cloudflare Pages)
+
+X Builder includes an MVP publish feature that deploys projects directly to Cloudflare Pages.
+
+**Components**:
+- `app/lib/stores/publish.ts` - State management for publish status
+- `app/routes/api.publish.ts` - API endpoint for Cloudflare Pages deployment
+- `app/components/workbench/PublishButton.client.tsx` - UI button component
+
+**Environment Variables** (for publish to work at runtime):
+- `CLOUDFLARE_API_TOKEN` - API token with Pages permissions
+- `CLOUDFLARE_ACCOUNT_ID` - Your Cloudflare account ID
+
+> **TODO**: The Cloudflare Pages Direct Upload API implementation may need adjustment
+> based on actual API requirements for production use.
+
 ### Cross-Origin Isolation
 
 X Builder requires `crossOriginIsolated` to be enabled for WebContainers (SharedArrayBuffer). This is achieved via HTTP headers:
