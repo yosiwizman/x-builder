@@ -10,6 +10,12 @@ export default defineConfig((config) => {
     build: {
       target: 'esnext',
     },
+    server: {
+      headers: {
+        'Cross-Origin-Opener-Policy': 'same-origin',
+        'Cross-Origin-Embedder-Policy': 'credentialless',
+      },
+    },
     plugins: [
       nodePolyfills({
         include: ['path', 'buffer'],

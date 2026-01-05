@@ -35,6 +35,23 @@ X Builder is a white-label fork of Bolt.new that allows you to prompt, run, edit
 - **Scaffold basics first**: Establish the foundation before adding advanced features
 - **Batch simple instructions**: Combine multiple simple tasks in one message
 
+## Technical Notes
+
+### Cross-Origin Isolation
+
+X Builder requires `crossOriginIsolated` to be enabled for WebContainers (SharedArrayBuffer). This is achieved via HTTP headers:
+
+- `Cross-Origin-Opener-Policy: same-origin`
+- `Cross-Origin-Embedder-Policy: credentialless`
+
+These headers are set in:
+- `public/_headers` - Cloudflare Pages static headers
+- `app/entry.server.tsx` - Server-side rendering
+- `functions/[[path]].ts` - Cloudflare Pages Functions
+- `vite.config.ts` - Development server
+
+To verify: Open DevTools console and check `self.crossOriginIsolated === true`
+
 ## Development
 
 ### Prerequisites
