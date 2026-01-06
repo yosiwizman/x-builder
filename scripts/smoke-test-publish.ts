@@ -170,7 +170,7 @@ async function runTests() {
         throw new Error('No deployed URL from previous test');
       }
 
-      // Cloudflare Pages may need a moment to propagate
+      // cloudflare pages may need a moment to propagate
       const maxRetries = 5;
       const retryDelay = 3000; // 3 seconds
 
