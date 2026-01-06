@@ -37,21 +37,62 @@ X Builder is a white-label fork of Bolt.new that allows you to prompt, run, edit
 
 ## Technical Notes
 
-### MVP Publish (Cloudflare Pages)
+### Publish Providers
 
-X Builder includes an MVP publish feature that deploys projects directly to Cloudflare Pages.
+X Builder supports two publish providers:
 
-**Components**:
-- `app/lib/stores/publish.ts` - State management for publish status
-- `app/routes/api.publish.ts` - API endpoint for Cloudflare Pages deployment
-- `app/components/workbench/PublishButton.client.tsx` - UI button component
+#### 1. Cloudflare Pages (default)
 
-**Environment Variables** (for publish to work at runtime):
+Deploys projects to Cloudflare Pages via Direct Upload API.
+
+**Environment Variables**:
 - `CLOUDFLARE_API_TOKEN` - API token with Pages permissions
 - `CLOUDFLARE_ACCOUNT_ID` - Your Cloudflare account ID
 
-> **TODO**: The Cloudflare Pages Direct Upload API implementation may need adjustment
-> based on actual API requirements for production use.
+> **Note**: Pages deployments may experience propagation delays (known 500 errors after deploy).
+
+#### 2. R2 Worker (opt-in, deterministic)
+
+Deploys projects to R2, served by a dedicated Worker. This provider is **deterministic**: files are available immediately after upload.
+
+**Environment Variables**:
+- `SITES_BUCKET` - R2 bucket binding (configured in wrangler.toml)
+- `R2_SITES_WORKER_URL` - Base URL of the R2 serving worker (e.g., `https://x-builder-r2-sites.your-subdomain.workers.dev`)
+- `PUBLISH_ADMIN_TOKEN` - Admin token for delete endpoint (optional)
+- `PUBLISH_RETENTION_COUNT` - Number of deployments to keep per project (default: 5)
+
+**Usage**:
+```bash
+# Publish via R2 (add provider param)
+curl -X POST https://your-app/api/publish \
+  -H "Content-Type: application/json" \
+  -d '{"files": {...}, "projectName": "my-app", "provider": "r2_worker"}'
+
+# Delete deployment (admin)
+curl -X POST https://your-app/api/publish/delete \
+  -H "Content-Type: application/json" \
+  -H "X-Publish-Admin-Token: your-token" \
+  -d '{"projectId": "my-app", "deploymentId": "deploy-123-abc"}'
+```
+
+**R2 Worker Setup**:
+```bash
+# Create R2 bucket
+wrangler r2 bucket create x-builder-sites
+
+# Deploy R2 serving worker
+cd workers/r2-sites
+pnpm install
+pnpm deploy
+```
+
+**Components**:
+- `app/lib/stores/publish.ts` - State management for publish status
+- `app/routes/api.publish.ts` - API endpoint (supports both providers)
+- `app/routes/api.publish.delete.ts` - Admin delete endpoint (R2 only)
+- `app/lib/.server/r2/` - R2 upload and retention modules
+- `workers/r2-sites/` - R2 static file serving worker
+- `app/components/workbench/PublishButton.client.tsx` - UI button component
 
 ### Cross-Origin Isolation
 

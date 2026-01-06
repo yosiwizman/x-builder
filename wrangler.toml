@@ -3,3 +3,9 @@ name = "x-builder"
 compatibility_flags = ["nodejs_compat"]
 compatibility_date = "2024-07-01"
 pages_build_output_dir = "./build/client"
+
+# R2 bucket for R2 publish provider
+# Create bucket: wrangler r2 bucket create x-builder-sites
+[[r2_buckets]]
+binding = "SITES_BUCKET"
+bucket_name = "x-builder-sites"

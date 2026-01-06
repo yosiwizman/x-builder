@@ -4,6 +4,7 @@
  * Usage:
  *   Contract mode: `pnpm smoke:publish <site-url>`
  *   E2E mode:      `pnpm smoke:publish <site-url> --e2e`
+ *   R2 E2E mode:   `pnpm smoke:publish <site-url> --e2e --r2`
  *
  * Contract mode verifies:
  * 1. Endpoint exists (not 404).
@@ -15,17 +16,25 @@
  * 5. POSTs a minimal static site.
  * 6. Asserts success response includes a URL.
  * 7. Fetches the deployed URL and validates it serves HTML.
+ *
+ * R2 E2E mode:
+ * - Uses provider=r2_worker instead of Pages.
+ * - Tests deterministic R2 serving (no propagation delay).
+ * - Pages E2E is known flaky; R2 E2E should be reliable.
  */
 
 const args = process.argv.slice(2);
 const E2E_FLAG = '--e2e';
+const R2_FLAG = '--r2';
 const isE2E = args.includes(E2E_FLAG);
+const isR2 = args.includes(R2_FLAG);
 const BASE_URL = args.find((arg) => !arg.startsWith('--'));
 
 if (!BASE_URL) {
-  console.error('Usage: pnpm smoke:publish <site-url> [--e2e]');
+  console.error('Usage: pnpm smoke:publish <site-url> [--e2e] [--r2]');
   console.error('Example: pnpm smoke:publish https://x-builder-staging.pages.dev');
   console.error('Example: pnpm smoke:publish https://x-builder-staging.pages.dev --e2e');
+  console.error('Example: pnpm smoke:publish https://x-builder-staging.pages.dev --e2e --r2');
   process.exit(1);
 }
 
@@ -61,11 +70,16 @@ interface PublishResponse {
   success?: boolean;
   url?: string;
   error?: string;
+  provider?: string;
 }
 
 async function runTests() {
-  const mode = isE2E ? 'E2E' : 'Contract';
+  const mode = isE2E ? (isR2 ? 'R2 E2E' : 'Pages E2E (known flaky)') : 'Contract';
   console.log(`\n[${mode} Mode] Smoke testing: ${PUBLISH_URL}\n`);
+
+  if (isR2) {
+    console.log('Provider: r2_worker (deterministic)\n');
+  }
 
   console.log('--- Contract Checks ---\n');
 
@@ -130,18 +144,24 @@ async function runTests() {
 
   // E2E tests: only run when --e2e flag is provided
   if (isE2E) {
-    console.log('\n--- E2E Checks ---\n');
+    const providerLabel = isR2 ? 'R2 Worker' : 'Pages';
+    console.log(`\n--- E2E Checks (${providerLabel}) ---\n`);
 
     let deployedUrl: string | undefined;
 
     // test 5: POST minimal site returns success with URL
-    await test('POST minimal site returns success with URL', async () => {
+    const testName = isR2
+      ? 'POST minimal site via R2 returns success with URL'
+      : 'POST minimal site via Pages returns success with URL (flaky)';
+
+    await test(testName, async () => {
       const res = await fetch(PUBLISH_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           files: SMOKE_FILES,
-          projectName: 'smoke-test',
+          projectName: isR2 ? 'smoke-test-r2' : 'smoke-test',
+          provider: isR2 ? 'r2_worker' : 'pages',
         }),
       });
 
@@ -162,16 +182,27 @@ async function runTests() {
 
       deployedUrl = data.url;
       console.log(`  → Deployed to: ${deployedUrl}`);
+      console.log(`  → Provider: ${data.provider || 'unknown'}`);
     });
 
-    // test 6: Deployed URL serves HTML (with retry for propagation delay)
-    await test('Deployed URL serves HTML', async () => {
+    /**
+     * Test 6: deployed URL serves HTML.
+     * R2 is deterministic (no retry needed), Pages may need retries.
+     */
+    const serveTestName = isR2
+      ? 'R2 deployed URL serves HTML (deterministic)'
+      : 'Pages deployed URL serves HTML (with retry)';
+
+    await test(serveTestName, async () => {
       if (!deployedUrl) {
         throw new Error('No deployed URL from previous test');
       }
 
-      // cloudflare pages may need a moment to propagate
-      const maxRetries = 5;
+      /**
+       * R2 is deterministic, no retry needed.
+       * Pages may need propagation delay.
+       */
+      const maxRetries = isR2 ? 1 : 5;
       const retryDelay = 3000; // 3 seconds
 
       let lastError: Error | undefined;
@@ -197,6 +228,10 @@ async function runTests() {
           }
 
           // success - exit retry loop
+          if (isR2) {
+            console.log('  → R2 determinism verified: immediate 200 response');
+          }
+
           return;
         } catch (err) {
           lastError = err instanceof Error ? err : new Error(String(err));
