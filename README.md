@@ -89,7 +89,17 @@ pnpm run dev
 - `pnpm run lint` - Run ESLint
 - `pnpm run typecheck` - Run TypeScript checks
 - `pnpm test` - Run tests
-- `pnpm smoke:publish <site-url>` - Smoke test the publish API endpoint
+- `pnpm smoke:publish <site-url>` - Smoke test the publish API endpoint (contract mode)
+- `pnpm smoke:publish <site-url> --e2e` - Full end-to-end publish test (deploys and verifies)
+
+Examples:
+```bash
+# Contract mode - verify API contract only
+pnpm smoke:publish https://x-builder-staging.pages.dev
+
+# E2E mode - deploy minimal site and verify it serves HTML
+pnpm smoke:publish https://x-builder-staging.pages.dev --e2e
+```
 
 ### Deployment
 
