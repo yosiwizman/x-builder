@@ -1,0 +1,24 @@
+#:schema node_modules/wrangler/config-schema.json
+# R2 Worker Spike - ISOLATED from main x-builder worker
+# This is a SPIKE for evaluating R2 as a static site hosting target.
+# DO NOT merge to main without explicit approval.
+
+name = "x-builder-r2-spike"
+main = "src/index.ts"
+compatibility_date = "2024-07-01"
+compatibility_flags = ["nodejs_compat"]
+
+# R2 bucket binding - bucket must be created separately
+# Run: wrangler r2 bucket create x-builder-sites-spike
+[[r2_buckets]]
+binding = "SITES_BUCKET"
+bucket_name = "x-builder-sites-spike"
+
+# For local development, wrangler will use persist directory
+[vars]
+ENVIRONMENT = "development"
+
+# Development settings
+[dev]
+port = 8788
+local_protocol = "http"
