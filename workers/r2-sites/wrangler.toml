@@ -1,0 +1,31 @@
+#:schema node_modules/wrangler/config-schema.json
+# R2 Sites Worker - serves static files from R2 bucket
+# This is a SEPARATE deployment from the main x-builder Pages app.
+
+name = "x-builder-r2-sites"
+main = "src/index.ts"
+compatibility_date = "2024-07-01"
+compatibility_flags = ["nodejs_compat"]
+
+# R2 bucket binding - must match main app binding
+[[r2_buckets]]
+binding = "SITES_BUCKET"
+bucket_name = "x-builder-sites"
+
+[vars]
+ENVIRONMENT = "production"
+
+[dev]
+port = 8788
+local_protocol = "http"
+
+# Staging environment
+[env.staging]
+name = "x-builder-r2-sites-staging"
+
+[[env.staging.r2_buckets]]
+binding = "SITES_BUCKET"
+bucket_name = "x-builder-sites-staging"
+
+[env.staging.vars]
+ENVIRONMENT = "staging"

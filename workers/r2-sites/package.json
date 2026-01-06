@@ -1,0 +1,18 @@
+{
+  "name": "x-builder-r2-sites",
+  "version": "1.0.0",
+  "private": true,
+  "description": "R2 static sites serving worker for x-builder",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "deploy:staging": "wrangler deploy --env staging",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240620.0",
+    "typescript": "^5.5.2",
+    "wrangler": "^3.63.2"
+  }
+}

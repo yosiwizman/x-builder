@@ -30,5 +30,5 @@
     "**/.client/**/*.ts",
     "**/.client/**/*.tsx"
   ],
-  "exclude": ["node_modules", "r2-worker-spike"]
+  "exclude": ["node_modules", "r2-worker-spike", "workers"]
 }
