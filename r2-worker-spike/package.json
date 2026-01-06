@@ -1,0 +1,19 @@
+{
+  "name": "x-builder-r2-spike",
+  "version": "0.0.1",
+  "private": true,
+  "description": "SPIKE: R2 Worker for static site hosting evaluation",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test:determinism": "node --loader ts-node/esm test/determinism.ts",
+    "typecheck": "tsc --noEmit",
+    "create-bucket": "wrangler r2 bucket create x-builder-sites-spike"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240620.0",
+    "typescript": "^5.5.2",
+    "wrangler": "^3.63.2"
+  }
+}
