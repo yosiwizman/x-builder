@@ -8,3 +8,4 @@ pages_build_output_dir = "./build/client"
 # via Cloudflare Pages dashboard (Settings > Functions > R2 bucket bindings):
 #   Binding name: SITES_BUCKET
 #   Bucket: x-builder-sites (create with: wrangler r2 bucket create x-builder-sites)
+# R2 binding activated
