@@ -89,6 +89,7 @@ pnpm run dev
 - `pnpm run lint` - Run ESLint
 - `pnpm run typecheck` - Run TypeScript checks
 - `pnpm test` - Run tests
+- `pnpm smoke:publish <site-url>` - Smoke test the publish API endpoint
 
 ### Deployment
 
