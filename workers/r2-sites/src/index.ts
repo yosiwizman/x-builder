@@ -1,31 +1,35 @@
 /**
  * R2 Sites Worker - serves static files from R2 bucket.
  *
- * Architecture: Pages (API) → HTTP → R2 Worker → R2
+ * Architecture: Pages (API) -> HTTP -> R2 Worker -> R2.
  *
  * Cloudflare Pages cannot bind R2 buckets directly.
  * All R2 access happens exclusively through this Worker via HTTP.
  *
  * Endpoints:
- * - GET  /health                                    - Health check
- * - GET  /sites/{projectId}/{deploymentId}/{path}   - Serve static files
- * - POST /upload                                    - Upload files to R2
- * - POST /delete                                    - Delete deployment
- * - GET  /deployments/{projectId}                   - List deployments
- * - POST /cleanup                                   - Retention cleanup
+ * - GET  /health                                    - Health check (public)
+ * - GET  /sites/{projectId}/{deploymentId}/{path}   - Serve static files (public)
+ * - POST /upload                                    - Upload files to R2 (protected)
+ * - POST /delete                                    - Delete deployment (protected)
+ * - GET  /deployments/{projectId}                   - List deployments (public)
+ * - POST /cleanup                                   - Retention cleanup (protected)
+ *
+ * Security:
+ * - Public endpoints: /health, /sites/*, /deployments/*
+ * - Protected endpoints require: Authorization: Bearer <R2_SITES_WORKER_TOKEN>
  *
  * Features:
  * - Deterministic serving: files available immediately after upload
  * - index.html fallback for directory paths
  * - Correct content-type headers
  * - Cache-Control and ETag support
- * - Admin token protection for write operations
  */
 
 export interface Env {
   SITES_BUCKET: R2Bucket;
   ENVIRONMENT: string;
-  PUBLISH_ADMIN_TOKEN?: string;
+  /** internal token for Pages -> Worker authentication */
+  R2_SITES_WORKER_TOKEN?: string;
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -86,18 +90,31 @@ function buildR2Key(projectId: string, deploymentId: string, filePath: string): 
   return `${projectId}/${deploymentId}/${filePath}`;
 }
 
-/** Validate admin token for write operations */
-function validateAdminToken(request: Request, env: Env): Response | null {
-  const adminToken = env.PUBLISH_ADMIN_TOKEN;
+/**
+ * Validate internal Bearer token for protected operations.
+ * Protected endpoints: /upload, /delete, /cleanup.
+ */
+function validateInternalToken(request: Request, env: Env): Response | null {
+  const expectedToken = env.R2_SITES_WORKER_TOKEN;
 
-  if (!adminToken) {
-    return jsonResponse({ error: 'Admin token not configured' }, 500);
+  if (!expectedToken) {
+    return jsonResponse({ error: 'Server misconfigured: R2_SITES_WORKER_TOKEN not set.' }, 500);
   }
 
-  const providedToken = request.headers.get('X-Publish-Admin-Token');
+  const authHeader = request.headers.get('Authorization');
 
-  if (!providedToken || providedToken !== adminToken) {
-    return jsonResponse({ error: 'Unauthorized' }, 401);
+  if (!authHeader) {
+    return jsonResponse({ error: 'Missing Authorization header.' }, 401);
+  }
+
+  if (!authHeader.startsWith('Bearer ')) {
+    return jsonResponse({ error: 'Invalid Authorization header format. Expected: Bearer <token>' }, 401);
+  }
+
+  const providedToken = authHeader.slice(7); // remove 'Bearer '
+
+  if (providedToken !== expectedToken) {
+    return jsonResponse({ error: 'Invalid token. Authentication failed.' }, 401);
   }
 
   return null; // valid
@@ -132,9 +149,9 @@ export default {
       });
     }
 
-    // POST /upload - upload files to R2
+    // POST /upload - upload files to R2 (protected)
     if (request.method === 'POST' && url.pathname === '/upload') {
-      const authError = validateAdminToken(request, env);
+      const authError = validateInternalToken(request, env);
 
       if (authError) {
         return authError;
@@ -143,9 +160,9 @@ export default {
       return handleUpload(request, env);
     }
 
-    // POST /delete - delete deployment
+    // POST /delete - delete deployment (protected)
     if (request.method === 'POST' && url.pathname === '/delete') {
-      const authError = validateAdminToken(request, env);
+      const authError = validateInternalToken(request, env);
 
       if (authError) {
         return authError;
@@ -154,16 +171,16 @@ export default {
       return handleDelete(request, env);
     }
 
-    // GET /deployments/{projectId} - list deployments
+    // GET /deployments/{projectId} - list deployments (public)
     if (request.method === 'GET' && url.pathname.startsWith('/deployments/')) {
       const projectId = url.pathname.replace('/deployments/', '');
 
       return handleListDeployments(env, projectId);
     }
 
-    // POST /cleanup - retention cleanup
+    // POST /cleanup - retention cleanup (protected)
     if (request.method === 'POST' && url.pathname === '/cleanup') {
-      const authError = validateAdminToken(request, env);
+      const authError = validateInternalToken(request, env);
 
       if (authError) {
         return authError;

@@ -4,8 +4,8 @@
  * Usage:
  *   Contract mode: `pnpm smoke:publish <site-url>`
  *   E2E mode:      `pnpm smoke:publish <site-url> --e2e`
- *   R2 E2E mode:   `pnpm smoke:publish <site-url> --e2e --r2`
- *   R2 E2E with worker URL: `pnpm smoke:publish <site-url> --e2e --r2 --worker-url=<url>`
+ *   R2 E2E mode:   `pnpm smoke:publish <site-url> --e2e --r2 --publish-token=<token>`
+ *   R2 E2E full:   `pnpm smoke:publish <site-url> --e2e --r2 --publish-token=<token> --worker-url=<url>`
  *
  * Contract mode verifies:
  * 1. Endpoint exists (not 404).
@@ -20,9 +20,14 @@
  *
  * R2 E2E mode:
  * - Uses provider=r2_worker instead of Pages.
+ * - Requires --publish-token for authentication (X-Publish-Token header).
  * - Tests deterministic R2 serving (no propagation delay).
  * - Pages E2E is known flaky; R2 E2E should be reliable.
  * - Optionally checks Worker /health endpoint if --worker-url provided.
+ *
+ * Security:
+ * - R2 mode requires X-Publish-Token header (set via --publish-token or PUBLISH_TOKEN env).
+ * - Default Pages provider does not require auth token.
  *
  * Architecture note:
  * Cloudflare Pages cannot bind R2 buckets via UI.
@@ -36,16 +41,24 @@ const isE2E = args.includes(E2E_FLAG);
 const isR2 = args.includes(R2_FLAG);
 const workerUrlArg = args.find((arg) => arg.startsWith('--worker-url='));
 const WORKER_URL = workerUrlArg ? workerUrlArg.split('=')[1] : undefined;
+const publishTokenArg = args.find((arg) => arg.startsWith('--publish-token='));
+const PUBLISH_TOKEN = publishTokenArg ? publishTokenArg.split('=')[1] : process.env.PUBLISH_TOKEN;
 const BASE_URL = args.find((arg) => !arg.startsWith('--'));
 
 if (!BASE_URL) {
-  console.error('Usage: pnpm smoke:publish <site-url> [--e2e] [--r2] [--worker-url=<url>]');
+  console.error('Usage: pnpm smoke:publish <site-url> [--e2e] [--r2] [--publish-token=<token>] [--worker-url=<url>]');
   console.error('Example: pnpm smoke:publish https://x-builder-staging.pages.dev');
   console.error('Example: pnpm smoke:publish https://x-builder-staging.pages.dev --e2e');
-  console.error('Example: pnpm smoke:publish https://x-builder-staging.pages.dev --e2e --r2');
+  console.error('Example: pnpm smoke:publish https://x-builder-staging.pages.dev --e2e --r2 --publish-token=mytoken');
   console.error(
-    'Example: pnpm smoke:publish https://x-builder-staging.pages.dev --e2e --r2 --worker-url=https://x-builder-r2-sites-staging.x-builder-staging.workers.dev',
+    'Example: pnpm smoke:publish https://x-builder-staging.pages.dev --e2e --r2 --publish-token=mytoken --worker-url=https://x-builder-r2-sites-staging.x-builder-staging.workers.dev',
   );
+  process.exit(1);
+}
+
+// validate R2 mode requires token
+if (isR2 && isE2E && !PUBLISH_TOKEN) {
+  console.error('Error: R2 E2E mode requires --publish-token=<token> or PUBLISH_TOKEN env var.');
   process.exit(1);
 }
 
@@ -189,9 +202,16 @@ async function runTests() {
       : 'POST minimal site via Pages returns success with URL (flaky)';
 
     await test(testName, async () => {
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+
+      // R2 mode requires X-Publish-Token header
+      if (isR2 && PUBLISH_TOKEN) {
+        headers['X-Publish-Token'] = PUBLISH_TOKEN;
+      }
+
       const res = await fetch(PUBLISH_URL, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify({
           files: SMOKE_FILES,
           projectName: isR2 ? 'smoke-test-r2' : 'smoke-test',

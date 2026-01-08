@@ -11,6 +11,14 @@ interface Env {
    * All R2 access happens through the R2 Worker via HTTP.
    */
   R2_SITES_WORKER_URL?: string;
+
+  /** client auth token required for provider=r2_worker */
+  PUBLISH_TOKEN?: string;
+
+  /** admin token required for /api/publish/delete endpoint */
   PUBLISH_ADMIN_TOKEN?: string;
+
+  /** internal token for Pages -> R2 Worker communication */
+  R2_SITES_WORKER_TOKEN?: string;
   PUBLISH_RETENTION_COUNT?: string;
 }
