@@ -5,6 +5,7 @@
  *   Contract mode: `pnpm smoke:publish <site-url>`
  *   E2E mode:      `pnpm smoke:publish <site-url> --e2e`
  *   R2 E2E mode:   `pnpm smoke:publish <site-url> --e2e --r2`
+ *   R2 E2E with worker URL: `pnpm smoke:publish <site-url> --e2e --r2 --worker-url=<url>`
  *
  * Contract mode verifies:
  * 1. Endpoint exists (not 404).
@@ -21,6 +22,11 @@
  * - Uses provider=r2_worker instead of Pages.
  * - Tests deterministic R2 serving (no propagation delay).
  * - Pages E2E is known flaky; R2 E2E should be reliable.
+ * - Optionally checks Worker /health endpoint if --worker-url provided.
+ *
+ * Architecture note:
+ * Cloudflare Pages cannot bind R2 buckets via UI.
+ * R2 access happens exclusively via HTTP to the R2 Worker.
  */
 
 const args = process.argv.slice(2);
@@ -28,13 +34,18 @@ const E2E_FLAG = '--e2e';
 const R2_FLAG = '--r2';
 const isE2E = args.includes(E2E_FLAG);
 const isR2 = args.includes(R2_FLAG);
+const workerUrlArg = args.find((arg) => arg.startsWith('--worker-url='));
+const WORKER_URL = workerUrlArg ? workerUrlArg.split('=')[1] : undefined;
 const BASE_URL = args.find((arg) => !arg.startsWith('--'));
 
 if (!BASE_URL) {
-  console.error('Usage: pnpm smoke:publish <site-url> [--e2e] [--r2]');
+  console.error('Usage: pnpm smoke:publish <site-url> [--e2e] [--r2] [--worker-url=<url>]');
   console.error('Example: pnpm smoke:publish https://x-builder-staging.pages.dev');
   console.error('Example: pnpm smoke:publish https://x-builder-staging.pages.dev --e2e');
   console.error('Example: pnpm smoke:publish https://x-builder-staging.pages.dev --e2e --r2');
+  console.error(
+    'Example: pnpm smoke:publish https://x-builder-staging.pages.dev --e2e --r2 --worker-url=https://x-builder-r2-sites-staging.x-builder-staging.workers.dev',
+  );
   process.exit(1);
 }
 
@@ -78,7 +89,30 @@ async function runTests() {
   console.log(`\n[${mode} Mode] Smoke testing: ${PUBLISH_URL}\n`);
 
   if (isR2) {
-    console.log('Provider: r2_worker (deterministic)\n');
+    console.log('Provider: r2_worker (deterministic)');
+    console.log('Architecture: Pages -> HTTP -> R2 Worker -> R2\n');
+  }
+
+  // R2 Worker health check (if worker URL provided)
+  if (isR2 && WORKER_URL) {
+    console.log('--- R2 Worker Health Check ---\n');
+
+    await test('R2 Worker /health returns 200', async () => {
+      const healthUrl = `${WORKER_URL.replace(/\/$/, '')}/health`;
+      const res = await fetch(healthUrl);
+
+      if (res.status !== 200) {
+        throw new Error(`Expected 200, got ${res.status}`);
+      }
+
+      const data = (await res.json()) as { status?: string };
+
+      if (data.status !== 'ok') {
+        throw new Error(`Expected status:ok, got: ${JSON.stringify(data)}`);
+      }
+
+      console.log(`  \u2192 Worker healthy at: ${healthUrl}`);
+    });
   }
 
   console.log('--- Contract Checks ---\n');

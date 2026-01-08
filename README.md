@@ -41,6 +41,23 @@ X Builder is a white-label fork of Bolt.new that allows you to prompt, run, edit
 
 X Builder supports two publish providers:
 
+#### Architecture
+
+```
+┌─────────────────────────────────────────────────────────┐
+│                    PAGES PROVIDER                        │
+│  Pages App  ──────> Cloudflare Pages API                   │
+└─────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────┐
+│                  R2 WORKER PROVIDER                       │
+│  Pages App  ──HTTP──> R2 Worker  ─────> R2 Bucket          │
+└─────────────────────────────────────────────────────────┘
+```
+
+> **Important**: Cloudflare Pages cannot bind R2 buckets via the dashboard UI.
+> R2 access is handled exclusively by the R2 Worker via HTTP.
+
 #### 1. Cloudflare Pages (default)
 
 Deploys projects to Cloudflare Pages via Direct Upload API.
@@ -53,12 +70,11 @@ Deploys projects to Cloudflare Pages via Direct Upload API.
 
 #### 2. R2 Worker (opt-in, deterministic)
 
-Deploys projects to R2, served by a dedicated Worker. This provider is **deterministic**: files are available immediately after upload.
+Deploys projects to R2 via HTTP, served by a dedicated Worker. This provider is **deterministic**: files are available immediately after upload.
 
-**Environment Variables**:
-- `SITES_BUCKET` - R2 bucket binding (configured in wrangler.toml)
-- `R2_SITES_WORKER_URL` - Base URL of the R2 serving worker (e.g., `https://x-builder-r2-sites.your-subdomain.workers.dev`)
-- `PUBLISH_ADMIN_TOKEN` - Admin token for delete endpoint (optional)
+**Environment Variables** (set on Pages project):
+- `R2_SITES_WORKER_URL` - Base URL of the R2 Worker (e.g., `https://x-builder-r2-sites.your-subdomain.workers.dev`)
+- `PUBLISH_ADMIN_TOKEN` - Shared token for authenticated Worker endpoints
 - `PUBLISH_RETENTION_COUNT` - Number of deployments to keep per project (default: 5)
 
 **Usage**:
@@ -80,18 +96,27 @@ curl -X POST https://your-app/api/publish/delete \
 # Create R2 bucket
 wrangler r2 bucket create x-builder-sites
 
-# Deploy R2 serving worker
+# Set admin token secret on Worker
+wrangler secret put PUBLISH_ADMIN_TOKEN --env staging
+
+# Deploy R2 Worker
 cd workers/r2-sites
-pnpm install
-pnpm deploy
+npm run deploy
 ```
 
+**R2 Worker Endpoints**:
+- `GET /health` - Health check
+- `GET /sites/{projectId}/{deploymentId}/{path}` - Serve static files
+- `POST /upload` - Upload files (requires admin token)
+- `POST /delete` - Delete deployment (requires admin token)
+- `GET /deployments/{projectId}` - List deployments
+- `POST /cleanup` - Retention cleanup (requires admin token)
+
 **Components**:
+- `app/routes/api.publish.ts` - API endpoint (routes to provider via HTTP)
+- `app/routes/api.publish.delete.ts` - Admin delete endpoint (calls Worker via HTTP)
+- `workers/r2-sites/` - R2 Worker (handles all R2 operations)
 - `app/lib/stores/publish.ts` - State management for publish status
-- `app/routes/api.publish.ts` - API endpoint (supports both providers)
-- `app/routes/api.publish.delete.ts` - Admin delete endpoint (R2 only)
-- `app/lib/.server/r2/` - R2 upload and retention modules
-- `workers/r2-sites/` - R2 static file serving worker
 - `app/components/workbench/PublishButton.client.tsx` - UI button component
 
 ### Cross-Origin Isolation

@@ -1,12 +1,15 @@
 import { type ActionFunctionArgs, json } from '@remix-run/cloudflare';
 
-import {
-  cleanupOldDeployments,
-  generateDeploymentId,
-  getRetentionCount,
-  uploadToR2,
-  type PublishProvider,
-} from '~/lib/.server/r2';
+/**
+ * Publish API endpoint.
+ *
+ * Architecture: Pages (API) -> HTTP -> R2 Worker -> R2.
+ *
+ * Cloudflare Pages cannot bind R2 buckets directly via UI.
+ * All R2 access happens exclusively through the R2 Worker via HTTP.
+ */
+
+type PublishProvider = 'pages' | 'r2_worker';
 
 interface PublishRequest {
   files: Record<string, string>;
@@ -17,17 +20,15 @@ interface PublishRequest {
 interface CloudflareEnv {
   CLOUDFLARE_API_TOKEN?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;
-  SITES_BUCKET?: R2Bucket;
   R2_SITES_WORKER_URL?: string;
+  PUBLISH_ADMIN_TOKEN?: string;
   PUBLISH_RETENTION_COUNT?: string;
 }
 
 /**
- * Publish API endpoint.
- *
  * Supports two providers:
  * - "pages" (default): Cloudflare Pages Direct Upload API
- * - "r2_worker": Upload to R2, served by Worker
+ * - "r2_worker": Upload to R2 via HTTP, served by Worker (deterministic)
  *
  * Request body:
  * - files: Record<string, string> - file path to content mapping
@@ -60,54 +61,99 @@ export async function action({ context, request }: ActionFunctionArgs) {
 }
 
 /**
- * Publish to R2 via Worker.
+ * Publish to R2 via HTTP call to Worker.
+ *
+ * Architecture: Pages -> HTTP -> R2 Worker -> R2.
+ * Pages cannot bind R2 directly; all R2 access goes through the Worker.
  */
 async function handleR2Publish(
   env: CloudflareEnv,
   files: Record<string, string>,
   projectName: string,
 ): Promise<Response> {
-  const bucket = env.SITES_BUCKET;
   const workerUrl = env.R2_SITES_WORKER_URL;
-
-  if (!bucket) {
-    return json({ error: 'R2 bucket not configured. Set SITES_BUCKET binding.' }, { status: 500 });
-  }
+  const adminToken = env.PUBLISH_ADMIN_TOKEN;
 
   if (!workerUrl) {
     return json({ error: 'R2 worker URL not configured. Set R2_SITES_WORKER_URL.' }, { status: 500 });
   }
 
-  const deploymentId = generateDeploymentId();
+  if (!adminToken) {
+    return json({ error: 'Admin token not configured. Set PUBLISH_ADMIN_TOKEN.' }, { status: 500 });
+  }
 
-  const result = await uploadToR2(bucket, { files, projectId: projectName, deploymentId }, workerUrl);
+  // call Worker upload endpoint
+  const uploadUrl = `${workerUrl.replace(/\/$/, '')}/upload`;
+
+  const uploadResponse = await fetch(uploadUrl, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Publish-Admin-Token': adminToken,
+    },
+    body: JSON.stringify({
+      files,
+      projectId: projectName,
+    }),
+  });
+
+  const uploadResult = (await uploadResponse.json()) as {
+    success?: boolean;
+    url?: string;
+    deploymentId?: string;
+    error?: string;
+    errors?: string[];
+  };
+
+  if (!uploadResponse.ok || !uploadResult.success) {
+    return json(
+      {
+        error: uploadResult.error || 'Upload to R2 Worker failed',
+        errors: uploadResult.errors,
+      },
+      { status: uploadResponse.status || 500 },
+    );
+  }
 
   // schedule retention cleanup (best effort, don't fail publish)
   try {
     const retentionCount = getRetentionCount(env.PUBLISH_RETENTION_COUNT);
-    await cleanupOldDeployments(bucket, projectName, retentionCount);
+    const cleanupUrl = `${workerUrl.replace(/\/$/, '')}/cleanup`;
+
+    await fetch(cleanupUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Publish-Admin-Token': adminToken,
+      },
+      body: JSON.stringify({
+        projectId: projectName,
+        retentionCount,
+      }),
+    });
   } catch (err) {
     console.error('Retention cleanup error (non-fatal):', err);
   }
 
-  if (!result.success) {
-    return json(
-      {
-        error: 'Some files failed to upload',
-        errors: result.errors,
-        url: result.url,
-        deploymentId: result.deploymentId,
-      },
-      { status: 207 },
-    );
-  }
-
   return json({
     success: true,
-    url: result.url,
-    deploymentId: result.deploymentId,
+    url: uploadResult.url,
+    deploymentId: uploadResult.deploymentId,
     provider: 'r2_worker',
   });
+}
+
+/** Parse retention count from env or use default */
+function getRetentionCount(envValue?: string): number {
+  const DEFAULT = 5;
+
+  if (!envValue) {
+    return DEFAULT;
+  }
+
+  const parsed = parseInt(envValue, 10);
+
+  return isNaN(parsed) || parsed < 1 ? DEFAULT : parsed;
 }
 
 /**

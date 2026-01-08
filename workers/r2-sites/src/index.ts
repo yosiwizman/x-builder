@@ -1,19 +1,31 @@
 /**
  * R2 Sites Worker - serves static files from R2 bucket.
  *
- * URL Pattern: /sites/{projectId}/{deploymentId}/{...filePath}
+ * Architecture: Pages (API) → HTTP → R2 Worker → R2
+ *
+ * Cloudflare Pages cannot bind R2 buckets directly.
+ * All R2 access happens exclusively through this Worker via HTTP.
+ *
+ * Endpoints:
+ * - GET  /health                                    - Health check
+ * - GET  /sites/{projectId}/{deploymentId}/{path}   - Serve static files
+ * - POST /upload                                    - Upload files to R2
+ * - POST /delete                                    - Delete deployment
+ * - GET  /deployments/{projectId}                   - List deployments
+ * - POST /cleanup                                   - Retention cleanup
  *
  * Features:
  * - Deterministic serving: files available immediately after upload
  * - index.html fallback for directory paths
  * - Correct content-type headers
  * - Cache-Control and ETag support
- * - 304 Not Modified for conditional requests
+ * - Admin token protection for write operations
  */
 
 export interface Env {
   SITES_BUCKET: R2Bucket;
   ENVIRONMENT: string;
+  PUBLISH_ADMIN_TOKEN?: string;
 }
 
 const MIME_TYPES: Record<string, string> = {
@@ -74,6 +86,38 @@ function buildR2Key(projectId: string, deploymentId: string, filePath: string): 
   return `${projectId}/${deploymentId}/${filePath}`;
 }
 
+/** Validate admin token for write operations */
+function validateAdminToken(request: Request, env: Env): Response | null {
+  const adminToken = env.PUBLISH_ADMIN_TOKEN;
+
+  if (!adminToken) {
+    return jsonResponse({ error: 'Admin token not configured' }, 500);
+  }
+
+  const providedToken = request.headers.get('X-Publish-Admin-Token');
+
+  if (!providedToken || providedToken !== adminToken) {
+    return jsonResponse({ error: 'Unauthorized' }, 401);
+  }
+
+  return null; // valid
+}
+
+function jsonResponse(data: unknown, status = 200): Response {
+  return new Response(JSON.stringify(data), {
+    status,
+    headers: { 'Content-Type': 'application/json' },
+  });
+}
+
+/** Generate unique deployment ID */
+function generateDeploymentId(): string {
+  const timestamp = Date.now();
+  const random = Math.random().toString(36).substring(2, 8);
+
+  return `deploy-${timestamp}-${random}`;
+}
+
 export default {
   async fetch(request: Request, env: Env, _ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -81,29 +125,59 @@ export default {
 
     // health check endpoint
     if (url.pathname === '/health') {
-      return new Response(
-        JSON.stringify({
-          status: 'ok',
-          environment: env.ENVIRONMENT,
-          timestamp: new Date().toISOString(),
-        }),
-        {
-          headers: { 'Content-Type': 'application/json' },
-        },
-      );
+      return jsonResponse({
+        status: 'ok',
+        environment: env.ENVIRONMENT,
+        timestamp: new Date().toISOString(),
+      });
     }
 
-    // only handle GET requests for sites
-    if (request.method !== 'GET') {
-      return new Response('Method not allowed', { status: 405 });
+    // POST /upload - upload files to R2
+    if (request.method === 'POST' && url.pathname === '/upload') {
+      const authError = validateAdminToken(request, env);
+
+      if (authError) {
+        return authError;
+      }
+
+      return handleUpload(request, env);
     }
 
-    // serve static files: /sites/{projectId}/{deploymentId}/{filePath}
-    if (url.pathname.startsWith('/sites/')) {
+    // POST /delete - delete deployment
+    if (request.method === 'POST' && url.pathname === '/delete') {
+      const authError = validateAdminToken(request, env);
+
+      if (authError) {
+        return authError;
+      }
+
+      return handleDelete(request, env);
+    }
+
+    // GET /deployments/{projectId} - list deployments
+    if (request.method === 'GET' && url.pathname.startsWith('/deployments/')) {
+      const projectId = url.pathname.replace('/deployments/', '');
+
+      return handleListDeployments(env, projectId);
+    }
+
+    // POST /cleanup - retention cleanup
+    if (request.method === 'POST' && url.pathname === '/cleanup') {
+      const authError = validateAdminToken(request, env);
+
+      if (authError) {
+        return authError;
+      }
+
+      return handleCleanup(request, env);
+    }
+
+    // GET /sites/{projectId}/{deploymentId}/{filePath} - serve files
+    if (request.method === 'GET' && url.pathname.startsWith('/sites/')) {
       return handleServe(request, env, url.pathname, startTime);
     }
 
-    return new Response('Not Found', { status: 404 });
+    return jsonResponse({ error: 'Not Found' }, 404);
   },
 };
 
@@ -174,4 +248,253 @@ async function handleServe(
       'X-Response-Time': `${Date.now() - startTime}ms`,
     },
   });
+}
+
+// === Upload Handler ===
+
+interface UploadRequest {
+  files: Record<string, string>;
+  projectId: string;
+  deploymentId?: string;
+}
+
+interface DeploymentManifest {
+  projectId: string;
+  deploymentId: string;
+  files: string[];
+  createdAt: string;
+  fileCount: number;
+}
+
+async function handleUpload(request: Request, env: Env): Promise<Response> {
+  try {
+    const body = (await request.json()) as UploadRequest;
+    const { files, projectId, deploymentId: providedDeploymentId } = body;
+
+    if (!files || Object.keys(files).length === 0) {
+      return jsonResponse({ error: 'No files provided' }, 400);
+    }
+
+    if (!projectId) {
+      return jsonResponse({ error: 'projectId is required' }, 400);
+    }
+
+    const deploymentId = providedDeploymentId || generateDeploymentId();
+    const uploadedFiles: string[] = [];
+    const errors: string[] = [];
+
+    // upload each file
+    for (const [filePath, content] of Object.entries(files)) {
+      const normalizedPath = filePath.startsWith('/') ? filePath.slice(1) : filePath;
+      const r2Key = buildR2Key(projectId, deploymentId, normalizedPath);
+
+      try {
+        const mimeType = getMimeType(normalizedPath);
+
+        await env.SITES_BUCKET.put(r2Key, content, {
+          httpMetadata: { contentType: mimeType },
+          customMetadata: {
+            uploadedAt: new Date().toISOString(),
+            projectId,
+            deploymentId,
+          },
+        });
+
+        uploadedFiles.push(normalizedPath);
+      } catch (err) {
+        errors.push(`${normalizedPath}: ${err instanceof Error ? err.message : 'Unknown error'}`);
+      }
+    }
+
+    // write manifest
+    const manifest: DeploymentManifest = {
+      projectId,
+      deploymentId,
+      files: uploadedFiles,
+      createdAt: new Date().toISOString(),
+      fileCount: uploadedFiles.length,
+    };
+
+    const manifestKey = buildR2Key(projectId, deploymentId, '_manifest.json');
+
+    await env.SITES_BUCKET.put(manifestKey, JSON.stringify(manifest), {
+      httpMetadata: { contentType: 'application/json' },
+    });
+
+    // construct URL (use request origin for base)
+    const origin = new URL(request.url).origin;
+    const url = `${origin}/sites/${projectId}/${deploymentId}/index.html`;
+
+    if (errors.length > 0) {
+      return jsonResponse(
+        {
+          success: false,
+          projectId,
+          deploymentId,
+          url,
+          uploadedFiles,
+          errors,
+        },
+        207,
+      );
+    }
+
+    return jsonResponse({
+      success: true,
+      projectId,
+      deploymentId,
+      url,
+      uploadedFiles,
+    });
+  } catch (err) {
+    return jsonResponse({ error: err instanceof Error ? err.message : 'Upload failed' }, 500);
+  }
+}
+
+// === Delete Handler ===
+
+interface DeleteRequest {
+  projectId: string;
+  deploymentId: string;
+}
+
+async function handleDelete(request: Request, env: Env): Promise<Response> {
+  try {
+    const body = (await request.json()) as DeleteRequest;
+    const { projectId, deploymentId } = body;
+
+    if (!projectId || !deploymentId) {
+      return jsonResponse({ error: 'projectId and deploymentId are required' }, 400);
+    }
+
+    const prefix = `${projectId}/${deploymentId}/`;
+    const listed = await env.SITES_BUCKET.list({ prefix });
+
+    let deletedCount = 0;
+
+    for (const obj of listed.objects) {
+      try {
+        await env.SITES_BUCKET.delete(obj.key);
+        deletedCount++;
+      } catch {
+        // continue on error
+      }
+    }
+
+    return jsonResponse({
+      success: true,
+      deletedCount,
+      projectId,
+      deploymentId,
+    });
+  } catch (err) {
+    return jsonResponse({ error: err instanceof Error ? err.message : 'Delete failed' }, 500);
+  }
+}
+
+// === List Deployments Handler ===
+
+async function handleListDeployments(env: Env, projectId: string): Promise<Response> {
+  if (!projectId) {
+    return jsonResponse({ error: 'projectId is required' }, 400);
+  }
+
+  try {
+    const manifests: DeploymentManifest[] = [];
+    const prefix = `${projectId}/`;
+
+    const listed = await env.SITES_BUCKET.list({ prefix });
+    const manifestKeys = listed.objects.filter((obj) => obj.key.endsWith('/_manifest.json')).map((obj) => obj.key);
+
+    for (const key of manifestKeys) {
+      try {
+        const obj = await env.SITES_BUCKET.get(key);
+
+        if (obj) {
+          const text = await obj.text();
+          const manifest = JSON.parse(text) as DeploymentManifest;
+          manifests.push(manifest);
+        }
+      } catch {
+        // skip invalid
+      }
+    }
+
+    // sort newest first
+    manifests.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    return jsonResponse({ projectId, deployments: manifests });
+  } catch (err) {
+    return jsonResponse({ error: err instanceof Error ? err.message : 'List failed' }, 500);
+  }
+}
+
+// === Cleanup Handler ===
+
+interface CleanupRequest {
+  projectId: string;
+  retentionCount?: number;
+}
+
+const DEFAULT_RETENTION_COUNT = 5;
+
+async function handleCleanup(request: Request, env: Env): Promise<Response> {
+  try {
+    const body = (await request.json()) as CleanupRequest;
+    const { projectId, retentionCount = DEFAULT_RETENTION_COUNT } = body;
+
+    if (!projectId) {
+      return jsonResponse({ error: 'projectId is required' }, 400);
+    }
+
+    // list deployments
+    const manifests: DeploymentManifest[] = [];
+    const prefix = `${projectId}/`;
+    const listed = await env.SITES_BUCKET.list({ prefix });
+    const manifestKeys = listed.objects.filter((obj) => obj.key.endsWith('/_manifest.json')).map((obj) => obj.key);
+
+    for (const key of manifestKeys) {
+      try {
+        const obj = await env.SITES_BUCKET.get(key);
+
+        if (obj) {
+          const text = await obj.text();
+          manifests.push(JSON.parse(text) as DeploymentManifest);
+        }
+      } catch {
+        // skip
+      }
+    }
+
+    manifests.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+
+    if (manifests.length <= retentionCount) {
+      return jsonResponse({ projectId, deletedCount: 0, message: 'Nothing to clean up' });
+    }
+
+    const toDelete = manifests.slice(retentionCount);
+    let deletedCount = 0;
+
+    for (const deployment of toDelete) {
+      const delPrefix = `${projectId}/${deployment.deploymentId}/`;
+      const delListed = await env.SITES_BUCKET.list({ prefix: delPrefix });
+
+      for (const obj of delListed.objects) {
+        try {
+          await env.SITES_BUCKET.delete(obj.key);
+          deletedCount++;
+        } catch {
+          // continue
+        }
+      }
+    }
+
+    return jsonResponse({
+      projectId,
+      deletedDeployments: toDelete.map((d) => d.deploymentId),
+      deletedFileCount: deletedCount,
+    });
+  } catch (err) {
+    return jsonResponse({ error: err instanceof Error ? err.message : 'Cleanup failed' }, 500);
+  }
 }

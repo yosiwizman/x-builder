@@ -1,6 +1,13 @@
 import { type ActionFunctionArgs, json } from '@remix-run/cloudflare';
 
-import { deleteDeployment } from '~/lib/.server/r2';
+/**
+ * Admin endpoint to delete R2 deployments.
+ *
+ * Architecture: Pages (API) -> HTTP -> R2 Worker -> R2.
+ *
+ * Cloudflare Pages cannot bind R2 buckets directly.
+ * Deletion is performed via HTTP call to the R2 Worker.
+ */
 
 interface DeleteRequest {
   projectId: string;
@@ -8,7 +15,7 @@ interface DeleteRequest {
 }
 
 interface DeleteEnv {
-  SITES_BUCKET?: R2Bucket;
+  R2_SITES_WORKER_URL?: string;
   PUBLISH_ADMIN_TOKEN?: string;
 }
 
@@ -16,8 +23,6 @@ const PROJECT_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
 const DEPLOYMENT_ID_PATTERN = /^deploy-\d+-[a-z0-9]+$/;
 
 /**
- * Admin endpoint to delete R2 deployments.
- *
  * Requires X-Publish-Admin-Token header for authentication.
  *
  * Request body:
@@ -40,11 +45,11 @@ export async function action({ context, request }: ActionFunctionArgs) {
     return json({ error: 'Unauthorized. Invalid or missing admin token.' }, { status: 401 });
   }
 
-  // validate R2 bucket
-  const bucket = env.SITES_BUCKET;
+  // validate R2 Worker URL
+  const workerUrl = env.R2_SITES_WORKER_URL;
 
-  if (!bucket) {
-    return json({ error: 'R2 bucket not configured. Set SITES_BUCKET binding.' }, { status: 500 });
+  if (!workerUrl) {
+    return json({ error: 'R2 worker URL not configured. Set R2_SITES_WORKER_URL.' }, { status: 500 });
   }
 
   try {
@@ -69,14 +74,33 @@ export async function action({ context, request }: ActionFunctionArgs) {
       return json({ error: 'Invalid deploymentId format. Expected deploy-{timestamp}-{random}.' }, { status: 400 });
     }
 
-    // perform deletion
-    const result = await deleteDeployment(bucket, projectId, deploymentId);
+    // call R2 Worker delete endpoint
+    const deleteUrl = `${workerUrl.replace(/\/$/, '')}/delete`;
+
+    const deleteResponse = await fetch(deleteUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Publish-Admin-Token': adminToken,
+      },
+      body: JSON.stringify({ projectId, deploymentId }),
+    });
+
+    const result = (await deleteResponse.json()) as {
+      success?: boolean;
+      deletedCount?: number;
+      error?: string;
+    };
+
+    if (!deleteResponse.ok || !result.success) {
+      return json({ error: result.error || 'Delete failed' }, { status: deleteResponse.status || 500 });
+    }
 
     return json({
       success: true,
       deletedCount: result.deletedCount,
-      projectId: result.projectId,
-      deploymentId: result.deploymentId,
+      projectId,
+      deploymentId,
     });
   } catch (error) {
     console.error('Delete error:', error);
