@@ -4,8 +4,7 @@ compatibility_flags = ["nodejs_compat"]
 compatibility_date = "2024-07-01"
 pages_build_output_dir = "./build/client"
 
-# NOTE: R2 bucket binding for R2 publish provider must be configured
-# via Cloudflare Pages dashboard (Settings > Functions > R2 bucket bindings):
-#   Binding name: SITES_BUCKET
-#   Bucket: x-builder-sites (create with: wrangler r2 bucket create x-builder-sites)
-# R2 binding activated
+# NOTE: Cloudflare Pages cannot bind R2 buckets via the dashboard UI.
+# R2 access for the r2_worker provider happens exclusively via HTTP:
+#   Pages (API) -> HTTP -> R2 Worker -> R2 Bucket
+# See workers/r2-sites/ for the R2 Worker implementation.
