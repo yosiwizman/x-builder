@@ -5,6 +5,7 @@ import { Menu } from '~/components/sidebar/Menu.client';
 import { IconButton } from '~/components/ui/IconButton';
 import { Workbench } from '~/components/workbench/Workbench.client';
 import { classNames } from '~/utils/classNames';
+import { LlmConfigBanner } from './LLMConfigBanner.client';
 import { Messages } from './Messages.client';
 import { SendButton } from './SendButton.client';
 
@@ -25,6 +26,8 @@ interface BaseChatProps {
   sendMessage?: (event: React.UIEvent, messageInput?: string) => void;
   handleInputChange?: (event: React.ChangeEvent<HTMLTextAreaElement>) => void;
   enhancePrompt?: () => void;
+  onOpenSettings?: () => void;
+  onRetry?: () => void;
 }
 
 const EXAMPLE_PROMPTS = [
@@ -54,6 +57,8 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
       handleInputChange,
       enhancePrompt,
       handleStop,
+      onOpenSettings,
+      onRetry,
     },
     ref,
   ) => {
@@ -103,6 +108,10 @@ export const BaseChat = React.forwardRef<HTMLDivElement, BaseChatProps>(
                   'sticky bottom-0': chatStarted,
                 })}
               >
+                {/* LLM configuration banner */}
+                <ClientOnly>
+                  {() => <LlmConfigBanner onOpenSettings={onOpenSettings ?? (() => undefined)} onRetry={onRetry} />}
+                </ClientOnly>
                 <div
                   className={classNames(
                     'shadow-sm border border-bolt-elements-borderColor bg-bolt-elements-prompt-background backdrop-filter backdrop-blur-[8px] rounded-lg overflow-hidden',

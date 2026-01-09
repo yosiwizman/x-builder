@@ -7,6 +7,7 @@ import { Dialog, DialogButton, DialogDescription, DialogRoot, DialogTitle } from
 import { ThemeSwitch } from '~/components/ui/ThemeSwitch';
 import { db, deleteById, getAll, chatId, type ChatHistoryItem } from '~/lib/persistence';
 import { initProviderStore, isProviderConfigured } from '~/lib/stores/providers';
+import { closeProviderSettings, providerSettingsOpen } from '~/lib/stores/settings';
 import { cubicEasingFn } from '~/utils/easings';
 import { logger } from '~/utils/logger';
 import { HistoryItem } from './HistoryItem';
@@ -40,7 +41,7 @@ export function Menu() {
   const [list, setList] = useState<ChatHistoryItem[]>([]);
   const [open, setOpen] = useState(false);
   const [dialogContent, setDialogContent] = useState<DialogContent>(null);
-  const [settingsOpen, setSettingsOpen] = useState(false);
+  const settingsOpen = useStore(providerSettingsOpen);
   const providerConfigured = useStore(isProviderConfigured);
 
   // initialize provider store on mount
@@ -174,7 +175,7 @@ export function Menu() {
         </div>
         <div className="flex items-center justify-between border-t border-bolt-elements-borderColor p-4">
           <button
-            onClick={() => setSettingsOpen(true)}
+            onClick={() => providerSettingsOpen.set(true)}
             className="flex items-center gap-2 text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary transition-colors"
             title="LLM Provider Settings"
           >
@@ -184,7 +185,7 @@ export function Menu() {
           </button>
           <ThemeSwitch />
         </div>
-        <ProviderSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
+        <ProviderSettings open={settingsOpen} onClose={closeProviderSettings} />
       </div>
     </motion.div>
   );

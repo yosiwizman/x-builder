@@ -1,7 +1,9 @@
-import { type ActionFunctionArgs } from '@remix-run/cloudflare';
+import { type ActionFunctionArgs, json } from '@remix-run/cloudflare';
 import { StreamingTextResponse, parseStreamPart } from 'ai';
 import { getLLMConfig } from '~/lib/.server/llm/api-key';
+import { redactApiKey } from '~/lib/.server/llm/providers';
 import { streamText } from '~/lib/.server/llm/stream-text';
+import { createLLMErrorResponse, LLM_ERROR_CODES, type LLMErrorCode, parseProviderError } from '~/lib/llm-errors';
 import { stripIndents } from '~/utils/stripIndent';
 
 const encoder = new TextEncoder();
@@ -18,11 +20,12 @@ async function enhancerAction({ context, request }: ActionFunctionArgs) {
   const llmConfig = getLLMConfig(request, context.cloudflare.env);
 
   if (!llmConfig) {
-    throw new Response(null, {
-      status: 401,
-      statusText: 'No LLM provider configured',
-    });
+    return json(createLLMErrorResponse(LLM_ERROR_CODES.NO_LLM_CONFIG), { status: 401 });
   }
+
+  console.log(
+    `[Enhancer] Provider: ${llmConfig.provider}, Model: ${llmConfig.model}, Key: ${redactApiKey(llmConfig.apiKey)}`,
+  );
 
   try {
     const result = await streamText(
@@ -61,11 +64,59 @@ async function enhancerAction({ context, request }: ActionFunctionArgs) {
 
     return new StreamingTextResponse(transformedStream);
   } catch (error) {
-    console.log(error);
+    const errorMessage = error instanceof Error ? error.message : 'Unknown error';
 
-    throw new Response(null, {
-      status: 500,
-      statusText: 'Internal Server Error',
+    // redact any API keys from logs
+    const redactedMessage = errorMessage.replace(/sk-[a-zA-Z0-9_-]{10,}/g, '[REDACTED_KEY]');
+    console.error('[Enhancer] Error:', redactedMessage);
+
+    // parse the error to determine the appropriate error code
+    const errorCode = parseProviderError(errorMessage, extractStatusCode(error));
+
+    return json(createLLMErrorResponse(errorCode, llmConfig.provider, llmConfig.model), {
+      status: getHttpStatus(errorCode),
     });
+  }
+}
+
+/**
+ * Extract HTTP status code from an error object.
+ */
+function extractStatusCode(error: unknown): number | undefined {
+  if (error && typeof error === 'object') {
+    if ('status' in error && typeof error.status === 'number') {
+      return error.status;
+    }
+
+    if ('statusCode' in error && typeof error.statusCode === 'number') {
+      return error.statusCode;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Map LLM error code to HTTP status code.
+ */
+function getHttpStatus(code: LLMErrorCode): number {
+  switch (code) {
+    case LLM_ERROR_CODES.NO_LLM_CONFIG:
+    case LLM_ERROR_CODES.INVALID_API_KEY: {
+      return 401;
+    }
+
+    case LLM_ERROR_CODES.INVALID_PROVIDER:
+    case LLM_ERROR_CODES.MODEL_ERROR: {
+      return 400;
+    }
+
+    case LLM_ERROR_CODES.RATE_LIMIT: {
+      return 429;
+    }
+
+    default: {
+      return 500;
+    }
   }
 }
