@@ -28,6 +28,41 @@ X Builder is a white-label fork of Bolt.new that allows you to prompt, run, edit
 
 - **AI with Environment Control**: AI models have complete control over the filesystem, node server, package manager, terminal, and browser console
 
+## 2-Minute Demo: Enable AI on Staging
+
+X Builder uses **BYOK (Bring Your Own Key)** - you provide your own LLM API key.
+
+### Quick Start
+
+1. **Open staging**: https://x-builder-staging.pages.dev
+2. **Open Settings**: Hover on the left edge to reveal the sidebar, click **Settings** (gear icon)
+3. **Select Provider**: Choose OpenRouter (recommended), OpenAI, or Anthropic
+4. **Enter API Key**: Paste your key (keys start with `sk-or-`, `sk-`, or `sk-ant-`)
+5. **Save**: Click Save button
+6. **Test**: Type a prompt like "Create a simple counter component in React" and press Enter
+
+### Get an API Key
+
+| Provider | Get Key | Key Prefix |
+|----------|---------|------------|
+| OpenRouter | https://openrouter.ai/keys | `sk-or-` |
+| OpenAI | https://platform.openai.com/api-keys | `sk-` |
+| Anthropic | https://console.anthropic.com/settings/keys | `sk-ant-` |
+
+> **Recommended**: OpenRouter gives access to multiple models (Claude, GPT-4, etc.) with a single key.
+
+### What You'll See
+
+- **Success**: AI generates code, files appear in the editor, preview updates live
+- **401 Error**: Check your API key in Settings
+- **Rate Limit**: Wait a moment or check your provider's usage limits
+
+### Key Security
+
+- Keys are stored in your browser's localStorage (never on our servers)
+- Keys are sent only to the LLM provider via secure HTTPS
+- Keys are never logged or exposed in error messages
+
 ## Tips and Tricks
 
 - **Be specific about your stack**: Mention frameworks/libraries in your initial prompt

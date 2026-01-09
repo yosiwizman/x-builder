@@ -1,5 +1,8 @@
 interface Env {
-  ANTHROPIC_API_KEY: string;
+  /** LLM API keys (server-side fallback, BYOK preferred) */
+  ANTHROPIC_API_KEY?: string;
+  OPENAI_API_KEY?: string;
+  OPENROUTER_API_KEY?: string;
 
   /** cloudflare Pages publish (existing) */
   CLOUDFLARE_API_TOKEN?: string;

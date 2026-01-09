@@ -7,6 +7,7 @@ import { cssTransition, toast, ToastContainer } from 'react-toastify';
 import { useMessageParser, usePromptEnhancer, useShortcuts, useSnapScroll } from '~/lib/hooks';
 import { useChatHistory } from '~/lib/persistence';
 import { chatStore } from '~/lib/stores/chat';
+import { getProviderHeaders, initProviderStore } from '~/lib/stores/providers';
 import { workbenchStore } from '~/lib/stores/workbench';
 import { fileModificationsToHTML } from '~/utils/diff';
 import { cubicEasingFn } from '~/utils/easings';
@@ -75,11 +76,23 @@ export const ChatImpl = memo(({ initialMessages, storeMessageHistory }: ChatProp
 
   const [animationScope, animate] = useAnimate();
 
+  // initialize provider store on mount
+  useEffect(() => {
+    initProviderStore();
+  }, []);
+
   const { messages, isLoading, input, handleInputChange, setInput, stop, append } = useChat({
     api: '/api/chat',
+    headers: getProviderHeaders(),
     onError: (error) => {
       logger.error('Request failed\n\n', error);
-      toast.error('There was an error processing your request');
+
+      // check for auth errors
+      if (error.message?.includes('401') || error.message?.includes('NO_LLM_CONFIG')) {
+        toast.error('Please configure your LLM provider in Settings');
+      } else {
+        toast.error('There was an error processing your request');
+      }
     },
     onFinish: () => {
       logger.debug('Finished streaming');
