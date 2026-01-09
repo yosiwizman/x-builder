@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { getLLMConfig } from '~/lib/.server/llm/api-key';
-import { isValidProvider, redactApiKey } from '~/lib/.server/llm/providers';
+import { DEFAULT_MODELS, isValidProvider, POPULAR_MODELS, redactApiKey } from '~/lib/.server/llm/providers';
 
 describe('api.chat BYOK', () => {
   describe('getLLMConfig', () => {
@@ -63,8 +63,49 @@ describe('api.chat BYOK', () => {
       expect(config).toEqual({
         provider: 'openai',
         apiKey: MOCK_OAI_KEY,
-        model: 'gpt-4o',
+        model: DEFAULT_MODELS.openai,
       });
+    });
+
+    it('should use custom model when X-LLM-Model is provided', () => {
+      const customModel = 'gpt-4.1-mini';
+      const request = createMockRequest({
+        'X-LLM-Provider': 'openai',
+        'X-LLM-API-Key': MOCK_OAI_KEY,
+        'X-LLM-Model': customModel,
+      });
+      const env = createMockEnv();
+
+      const config = getLLMConfig(request, env);
+
+      expect(config).toEqual({
+        provider: 'openai',
+        apiKey: MOCK_OAI_KEY,
+        model: customModel,
+      });
+    });
+
+    it('should use default models for each provider', () => {
+      // OPENROUTER
+      const orReq = createMockRequest({
+        'X-LLM-Provider': 'openrouter',
+        'X-LLM-API-Key': MOCK_OR_KEY,
+      });
+      expect(getLLMConfig(orReq, createMockEnv())?.model).toBe(DEFAULT_MODELS.openrouter);
+
+      // OPENAI
+      const oaiReq = createMockRequest({
+        'X-LLM-Provider': 'openai',
+        'X-LLM-API-Key': MOCK_OAI_KEY,
+      });
+      expect(getLLMConfig(oaiReq, createMockEnv())?.model).toBe(DEFAULT_MODELS.openai);
+
+      // ANTHROPIC
+      const antReq = createMockRequest({
+        'X-LLM-Provider': 'anthropic',
+        'X-LLM-API-Key': MOCK_ANT_KEY,
+      });
+      expect(getLLMConfig(antReq, createMockEnv())?.model).toBe(DEFAULT_MODELS.anthropic);
     });
 
     it('should prioritize headers over env vars', () => {
@@ -89,7 +130,7 @@ describe('api.chat BYOK', () => {
       expect(config).toEqual({
         provider: 'anthropic',
         apiKey: MOCK_ANT_KEY,
-        model: 'claude-3-5-sonnet-20240620',
+        model: DEFAULT_MODELS.anthropic,
       });
     });
 
@@ -144,6 +185,20 @@ describe('api.chat BYOK', () => {
         expect(redacted.length).toBeLessThan(key.length);
         expect(redacted).toContain('...');
       }
+    });
+  });
+
+  describe('POPULAR_MODELS', () => {
+    it('should have popular models for each provider', () => {
+      expect(POPULAR_MODELS.openrouter.length).toBeGreaterThan(0);
+      expect(POPULAR_MODELS.openai.length).toBeGreaterThan(0);
+      expect(POPULAR_MODELS.anthropic.length).toBeGreaterThan(0);
+    });
+
+    it('should include default model in popular models', () => {
+      expect(POPULAR_MODELS.openrouter).toContain(DEFAULT_MODELS.openrouter);
+      expect(POPULAR_MODELS.openai).toContain(DEFAULT_MODELS.openai);
+      expect(POPULAR_MODELS.anthropic).toContain(DEFAULT_MODELS.anthropic);
     });
   });
 

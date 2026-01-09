@@ -8,6 +8,7 @@ import {
   initProviderStore,
   isProviderConfigured,
   type LLMProvider,
+  POPULAR_MODELS,
   providerStore,
   redactApiKey,
   setProviderConfig,
@@ -161,19 +162,25 @@ export function ProviderSettings({ open, onClose }: ProviderSettingsProps) {
               )}
             </div>
 
-            {/* model input (optional) */}
+            {/* model input with suggestions */}
             <div>
-              <label className="block text-sm font-medium text-bolt-elements-textPrimary mb-1">
-                Model <span className="text-bolt-elements-textTertiary">(optional)</span>
-              </label>
+              <label className="block text-sm font-medium text-bolt-elements-textPrimary mb-1">Model</label>
               <input
                 type="text"
                 value={model}
                 onChange={(e) => setModel(e.target.value)}
                 placeholder={DEFAULT_MODELS[provider]}
+                list={`models-${provider}`}
                 className="w-full px-3 py-2 bg-bolt-elements-background-depth-2 border border-bolt-elements-borderColor rounded-md text-bolt-elements-textPrimary focus:outline-none focus:ring-2 focus:ring-bolt-elements-focus"
               />
-              <p className="text-xs text-bolt-elements-textTertiary mt-1">Default: {DEFAULT_MODELS[provider]}</p>
+              <datalist id={`models-${provider}`}>
+                {POPULAR_MODELS[provider].map((m) => (
+                  <option key={m} value={m} />
+                ))}
+              </datalist>
+              <p className="text-xs text-bolt-elements-textTertiary mt-1">
+                Default: {DEFAULT_MODELS[provider]} — type to search or pick from suggestions
+              </p>
             </div>
 
             {/* status indicator */}

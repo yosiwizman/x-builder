@@ -51,6 +51,25 @@ X Builder uses **BYOK (Bring Your Own Key)** - you provide your own LLM API key.
 
 > **Recommended**: OpenRouter gives access to multiple models (Claude, GPT-4, etc.) with a single key.
 
+### Model Selection
+
+You can choose which model to use per provider. In Settings, start typing in the Model field to see suggestions.
+
+**Default Models** (Jan 2026):
+- OpenRouter: `openai/gpt-4.1`
+- OpenAI: `gpt-4.1`
+- Anthropic: `claude-sonnet-4-20250514`
+
+**Popular Models**:
+
+| Provider | Recommended Models |
+|----------|-------------------|
+| OpenRouter | `openai/gpt-4.1`, `openai/gpt-4.1-mini`, `anthropic/claude-sonnet-4-20250514`, `google/gemini-2.5-pro-preview-06-05` |
+| OpenAI | `gpt-4.1`, `gpt-4.1-mini`, `gpt-4.1-nano`, `o3-mini` |
+| Anthropic | `claude-sonnet-4-20250514`, `claude-3-5-sonnet-20241022`, `claude-3-opus-20240229` |
+
+Leave the Model field empty to use the default.
+
 ### What You'll See
 
 - **Success**: AI generates code, files appear in the editor, preview updates live
