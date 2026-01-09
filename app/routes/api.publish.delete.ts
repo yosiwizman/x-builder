@@ -16,7 +16,12 @@ interface DeleteRequest {
 
 interface DeleteEnv {
   R2_SITES_WORKER_URL?: string;
+
+  /** admin token required from clients for delete operations */
   PUBLISH_ADMIN_TOKEN?: string;
+
+  /** internal token for Pages -> Worker communication */
+  R2_SITES_WORKER_TOKEN?: string;
 }
 
 const PROJECT_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
@@ -45,11 +50,16 @@ export async function action({ context, request }: ActionFunctionArgs) {
     return json({ error: 'Unauthorized. Invalid or missing admin token.' }, { status: 401 });
   }
 
-  // validate R2 Worker URL
+  // validate R2 Worker URL and internal token
   const workerUrl = env.R2_SITES_WORKER_URL;
+  const internalToken = env.R2_SITES_WORKER_TOKEN;
 
   if (!workerUrl) {
     return json({ error: 'R2 worker URL not configured. Set R2_SITES_WORKER_URL.' }, { status: 500 });
+  }
+
+  if (!internalToken) {
+    return json({ error: 'Internal worker token not configured. Set R2_SITES_WORKER_TOKEN.' }, { status: 500 });
   }
 
   try {
@@ -74,14 +84,14 @@ export async function action({ context, request }: ActionFunctionArgs) {
       return json({ error: 'Invalid deploymentId format. Expected deploy-{timestamp}-{random}.' }, { status: 400 });
     }
 
-    // call R2 Worker delete endpoint
+    // call R2 Worker delete endpoint with internal auth
     const deleteUrl = `${workerUrl.replace(/\/$/, '')}/delete`;
 
     const deleteResponse = await fetch(deleteUrl, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Publish-Admin-Token': adminToken,
+        Authorization: `Bearer ${internalToken}`,
       },
       body: JSON.stringify({ projectId, deploymentId }),
     });

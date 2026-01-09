@@ -37,6 +37,45 @@ X Builder is a white-label fork of Bolt.new that allows you to prompt, run, edit
 
 ## Technical Notes
 
+### Security
+
+X Builder uses token-based authentication for sensitive operations.
+
+#### Authentication Tokens
+
+| Token | Header | Purpose | Required For |
+|-------|--------|---------|-------------|
+| `PUBLISH_TOKEN` | `X-Publish-Token` | Client auth for r2_worker | `POST /api/publish` with `provider=r2_worker` |
+| `PUBLISH_ADMIN_TOKEN` | `X-Publish-Admin-Token` | Admin operations | `POST /api/publish/delete` |
+| `R2_SITES_WORKER_TOKEN` | `Authorization: Bearer` | Internal Pages→Worker | Protected Worker endpoints |
+
+#### Environment Setup
+
+**Pages Project** (set in Cloudflare Dashboard for Preview/Production):
+```
+PUBLISH_TOKEN=<client-publish-token>
+PUBLISH_ADMIN_TOKEN=<admin-delete-token>
+R2_SITES_WORKER_TOKEN=<internal-shared-secret>
+```
+
+**R2 Worker** (set via wrangler secret):
+```bash
+wrangler secret put R2_SITES_WORKER_TOKEN --env staging
+```
+
+#### Public vs Protected Endpoints
+
+**Public** (no auth required):
+- `GET /api/publish` with default `pages` provider
+- `GET /health` on R2 Worker
+- `GET /sites/*` static file serving
+- `GET /deployments/*` list deployments
+
+**Protected** (requires token):
+- `POST /api/publish` with `provider=r2_worker` → requires `X-Publish-Token`
+- `POST /api/publish/delete` → requires `X-Publish-Admin-Token`
+- Worker: `POST /upload`, `POST /delete`, `POST /cleanup` → require `Authorization: Bearer`
+
 ### Publish Providers
 
 X Builder supports two publish providers:
@@ -73,21 +112,27 @@ Deploys projects to Cloudflare Pages via Direct Upload API.
 Deploys projects to R2 via HTTP, served by a dedicated Worker. This provider is **deterministic**: files are available immediately after upload.
 
 **Environment Variables** (set on Pages project):
-- `R2_SITES_WORKER_URL` - Base URL of the R2 Worker (e.g., `https://x-builder-r2-sites.your-subdomain.workers.dev`)
-- `PUBLISH_ADMIN_TOKEN` - Shared token for authenticated Worker endpoints
-- `PUBLISH_RETENTION_COUNT` - Number of deployments to keep per project (default: 5)
+- `R2_SITES_WORKER_URL` - Base URL of the R2 Worker
+- `PUBLISH_TOKEN` - Client auth token for `provider=r2_worker` requests
+- `PUBLISH_ADMIN_TOKEN` - Admin token for `/api/publish/delete` endpoint
+- `R2_SITES_WORKER_TOKEN` - Internal token for Pages -> Worker communication
+- `PUBLISH_RETENTION_COUNT` - Number of deployments to keep (default: 5)
+
+**Environment Variables** (set on R2 Worker):
+- `R2_SITES_WORKER_TOKEN` - Must match the Pages value for authentication
 
 **Usage**:
 ```bash
-# Publish via R2 (add provider param)
+# Publish via R2 (requires X-Publish-Token)
 curl -X POST https://your-app/api/publish \
   -H "Content-Type: application/json" \
+  -H "X-Publish-Token: your-publish-token" \
   -d '{"files": {...}, "projectName": "my-app", "provider": "r2_worker"}'
 
-# Delete deployment (admin)
+# Delete deployment (requires X-Publish-Admin-Token)
 curl -X POST https://your-app/api/publish/delete \
   -H "Content-Type: application/json" \
-  -H "X-Publish-Admin-Token: your-token" \
+  -H "X-Publish-Admin-Token: your-admin-token" \
   -d '{"projectId": "my-app", "deploymentId": "deploy-123-abc"}'
 ```
 
@@ -96,8 +141,8 @@ curl -X POST https://your-app/api/publish/delete \
 # Create R2 bucket
 wrangler r2 bucket create x-builder-sites
 
-# Set admin token secret on Worker
-wrangler secret put PUBLISH_ADMIN_TOKEN --env staging
+# Set internal auth token on Worker (same value as Pages R2_SITES_WORKER_TOKEN)
+wrangler secret put R2_SITES_WORKER_TOKEN --env staging
 
 # Deploy R2 Worker
 cd workers/r2-sites
@@ -105,12 +150,12 @@ npm run deploy
 ```
 
 **R2 Worker Endpoints**:
-- `GET /health` - Health check
-- `GET /sites/{projectId}/{deploymentId}/{path}` - Serve static files
-- `POST /upload` - Upload files (requires admin token)
-- `POST /delete` - Delete deployment (requires admin token)
-- `GET /deployments/{projectId}` - List deployments
-- `POST /cleanup` - Retention cleanup (requires admin token)
+- `GET /health` - Health check (public)
+- `GET /sites/{projectId}/{deploymentId}/{path}` - Serve static files (public)
+- `POST /upload` - Upload files (protected: requires Bearer token)
+- `POST /delete` - Delete deployment (protected: requires Bearer token)
+- `GET /deployments/{projectId}` - List deployments (public)
+- `POST /cleanup` - Retention cleanup (protected: requires Bearer token)
 
 **Components**:
 - `app/routes/api.publish.ts` - API endpoint (routes to provider via HTTP)
@@ -118,6 +163,33 @@ npm run deploy
 - `workers/r2-sites/` - R2 Worker (handles all R2 operations)
 - `app/lib/stores/publish.ts` - State management for publish status
 - `app/components/workbench/PublishButton.client.tsx` - UI button component
+
+### Security
+
+The R2 Worker publish path uses a two-layer authentication model:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Client  ──X-Publish-Token──> Pages API ──Bearer Token──> R2 Worker │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Layer 1: Client -> Pages API**
+- Default `pages` provider: No auth required (uses server-side Cloudflare credentials)
+- `r2_worker` provider: Requires `X-Publish-Token` header
+- Delete endpoint: Requires `X-Publish-Admin-Token` header
+
+**Layer 2: Pages API -> R2 Worker**
+- All write operations (upload/delete/cleanup) require `Authorization: Bearer <token>`
+- Public endpoints (`/health`, `/sites/*`, `/deployments/*`) need no auth
+
+**Required Secrets**:
+
+| Secret | Where | Purpose |
+|--------|-------|----------|
+| `PUBLISH_TOKEN` | Pages | Client auth for r2_worker provider |
+| `PUBLISH_ADMIN_TOKEN` | Pages | Client auth for delete endpoint |
+| `R2_SITES_WORKER_TOKEN` | Pages + Worker | Internal Pages->Worker auth |
 
 ### Cross-Origin Isolation
 
@@ -155,16 +227,32 @@ pnpm run dev
 - `pnpm run lint` - Run ESLint
 - `pnpm run typecheck` - Run TypeScript checks
 - `pnpm test` - Run tests
-- `pnpm smoke:publish <site-url>` - Smoke test the publish API endpoint (contract mode)
-- `pnpm smoke:publish <site-url> --e2e` - Full end-to-end publish test (deploys and verifies)
+- `pnpm smoke:publish <site-url>` - Smoke test the publish API
 
 Examples:
 ```bash
-# Contract mode - verify API contract only
+# Contract mode - verify API contract only (no auth needed)
 pnpm smoke:publish https://x-builder-staging.pages.dev
 
-# E2E mode - deploy minimal site and verify it serves HTML
+# E2E mode (Pages provider) - no auth needed
 pnpm smoke:publish https://x-builder-staging.pages.dev --e2e
+
+# E2E mode (R2 provider) - requires publish token
+pnpm smoke:publish https://x-builder-staging.pages.dev --e2e --r2 --publish-token=YOUR_TOKEN
+
+# Or use environment variable
+PUBLISH_TOKEN=YOUR_TOKEN pnpm smoke:publish https://x-builder-staging.pages.dev --e2e --r2
+
+# Full R2 E2E with worker health check
+pnpm smoke:publish https://x-builder-staging.pages.dev --e2e --r2 --publish-token=YOUR_TOKEN --worker-url=https://x-builder-r2-sites-staging.x-builder-staging.workers.dev
+```
+# R2 E2E mode - deploy via R2 Worker (requires token)
+pnpm smoke:publish https://x-builder-staging.pages.dev --e2e --r2 --publish-token=YOUR_TOKEN
+
+# R2 E2E mode with Worker health check
+pnpm smoke:publish https://x-builder-staging.pages.dev --e2e --r2 \
+  --publish-token=YOUR_TOKEN \
+  --worker-url=https://x-builder-r2-sites-staging.x-builder-staging.workers.dev
 ```
 
 ### Deployment

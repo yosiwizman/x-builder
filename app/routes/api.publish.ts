@@ -21,19 +21,27 @@ interface CloudflareEnv {
   CLOUDFLARE_API_TOKEN?: string;
   CLOUDFLARE_ACCOUNT_ID?: string;
   R2_SITES_WORKER_URL?: string;
-  PUBLISH_ADMIN_TOKEN?: string;
+
+  /** token required from clients for r2_worker provider */
+  PUBLISH_TOKEN?: string;
+
+  /** internal token for Pages -> Worker communication */
+  R2_SITES_WORKER_TOKEN?: string;
   PUBLISH_RETENTION_COUNT?: string;
 }
 
 /**
  * Supports two providers:
- * - "pages" (default): Cloudflare Pages Direct Upload API
- * - "r2_worker": Upload to R2 via HTTP, served by Worker (deterministic)
+ * - "pages" (default): Cloudflare Pages Direct Upload API (no auth required)
+ * - "r2_worker": Upload to R2 via HTTP, served by Worker (requires X-Publish-Token)
  *
  * Request body:
  * - files: Record<string, string> - file path to content mapping
  * - projectName?: string - project name (default: 'x-builder-preview')
  * - provider?: 'pages' | 'r2_worker' - publish target (default: 'pages')
+ *
+ * Headers (r2_worker only):
+ * - X-Publish-Token: required auth token for r2_worker provider
  */
 export async function action({ context, request }: ActionFunctionArgs) {
   const env = context.cloudflare.env as CloudflareEnv;
@@ -48,16 +56,49 @@ export async function action({ context, request }: ActionFunctionArgs) {
 
     // route to appropriate provider
     if (provider === 'r2_worker') {
+      // r2_worker requires client auth token
+      const authError = validatePublishToken(request, env);
+
+      if (authError) {
+        return authError;
+      }
+
       return handleR2Publish(env, files, projectName);
     }
 
-    // default: pages provider
+    // default: pages provider (no additional auth required)
     return handlePagesPublish(env, files, projectName);
   } catch (error) {
     console.error('Publish error:', error);
 
     return json({ error: 'Internal server error during publish' }, { status: 500 });
   }
+}
+
+/**
+ * Validate client publish token for r2_worker provider.
+ */
+function validatePublishToken(request: Request, env: CloudflareEnv): Response | null {
+  const expectedToken = env.PUBLISH_TOKEN;
+
+  if (!expectedToken) {
+    return json({ error: 'Server misconfigured: PUBLISH_TOKEN not set.' }, { status: 500 });
+  }
+
+  const providedToken = request.headers.get('X-Publish-Token');
+
+  if (!providedToken) {
+    return json(
+      { error: 'Missing X-Publish-Token header. Authentication required for r2_worker provider.' },
+      { status: 401 },
+    );
+  }
+
+  if (providedToken !== expectedToken) {
+    return json({ error: 'Invalid X-Publish-Token. Authentication failed.' }, { status: 401 });
+  }
+
+  return null; // valid
 }
 
 /**
@@ -72,24 +113,24 @@ async function handleR2Publish(
   projectName: string,
 ): Promise<Response> {
   const workerUrl = env.R2_SITES_WORKER_URL;
-  const adminToken = env.PUBLISH_ADMIN_TOKEN;
+  const internalToken = env.R2_SITES_WORKER_TOKEN;
 
   if (!workerUrl) {
     return json({ error: 'R2 worker URL not configured. Set R2_SITES_WORKER_URL.' }, { status: 500 });
   }
 
-  if (!adminToken) {
-    return json({ error: 'Admin token not configured. Set PUBLISH_ADMIN_TOKEN.' }, { status: 500 });
+  if (!internalToken) {
+    return json({ error: 'Internal worker token not configured. Set R2_SITES_WORKER_TOKEN.' }, { status: 500 });
   }
 
-  // call Worker upload endpoint
+  // call Worker upload endpoint with internal auth
   const uploadUrl = `${workerUrl.replace(/\/$/, '')}/upload`;
 
   const uploadResponse = await fetch(uploadUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
-      'X-Publish-Admin-Token': adminToken,
+      Authorization: `Bearer ${internalToken}`,
     },
     body: JSON.stringify({
       files,
@@ -124,7 +165,7 @@ async function handleR2Publish(
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        'X-Publish-Admin-Token': adminToken,
+        Authorization: `Bearer ${internalToken}`,
       },
       body: JSON.stringify({
         projectId: projectName,
