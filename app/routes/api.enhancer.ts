@@ -1,5 +1,6 @@
 import { type ActionFunctionArgs } from '@remix-run/cloudflare';
 import { StreamingTextResponse, parseStreamPart } from 'ai';
+import { getLLMConfig } from '~/lib/.server/llm/api-key';
 import { streamText } from '~/lib/.server/llm/stream-text';
 import { stripIndents } from '~/utils/stripIndent';
 
@@ -12,6 +13,16 @@ export async function action(args: ActionFunctionArgs) {
 
 async function enhancerAction({ context, request }: ActionFunctionArgs) {
   const { message } = await request.json<{ message: string }>();
+
+  // get LLM config from headers or env
+  const llmConfig = getLLMConfig(request, context.cloudflare.env);
+
+  if (!llmConfig) {
+    throw new Response(null, {
+      status: 401,
+      statusText: 'No LLM provider configured',
+    });
+  }
 
   try {
     const result = await streamText(
@@ -29,7 +40,7 @@ async function enhancerAction({ context, request }: ActionFunctionArgs) {
         `,
         },
       ],
-      context.cloudflare.env,
+      llmConfig,
     );
 
     const transformStream = new TransformStream({

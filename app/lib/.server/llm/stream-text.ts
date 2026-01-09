@@ -1,6 +1,6 @@
 import { streamText as _streamText, convertToCoreMessages } from 'ai';
-import { getAPIKey } from '~/lib/.server/llm/api-key';
-import { getAnthropicModel } from '~/lib/.server/llm/model';
+import { type LLMConfig } from '~/lib/.server/llm/api-key';
+import { getModel, getProviderHeaders } from '~/lib/.server/llm/providers';
 import { MAX_TOKENS } from './constants';
 import { getSystemPrompt } from './prompts';
 
@@ -21,14 +21,23 @@ export type Messages = Message[];
 
 export type StreamingOptions = Omit<Parameters<typeof _streamText>[0], 'model'>;
 
-export function streamText(messages: Messages, env: Env, options?: StreamingOptions) {
+/**
+ * Stream text from an LLM using the provided configuration.
+ *
+ * Supports multiple providers via BYOK:
+ * - OpenRouter (recommended for flexibility)
+ * - OpenAI
+ * - Anthropic
+ */
+export function streamText(messages: Messages, config: LLMConfig, options?: StreamingOptions) {
+  const model = getModel(config);
+  const providerHeaders = getProviderHeaders(config.provider);
+
   return _streamText({
-    model: getAnthropicModel(getAPIKey(env)),
+    model,
     system: getSystemPrompt(),
     maxTokens: MAX_TOKENS,
-    headers: {
-      'anthropic-beta': 'max-tokens-3-5-sonnet-2024-07-15',
-    },
+    headers: providerHeaders,
     messages: convertToCoreMessages(messages),
     ...options,
   });

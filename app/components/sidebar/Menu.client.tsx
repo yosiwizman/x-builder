@@ -1,9 +1,12 @@
+import { useStore } from '@nanostores/react';
 import { motion, type Variants } from 'framer-motion';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'react-toastify';
+import { ProviderSettings } from '~/components/settings/ProviderSettings.client';
 import { Dialog, DialogButton, DialogDescription, DialogRoot, DialogTitle } from '~/components/ui/Dialog';
 import { ThemeSwitch } from '~/components/ui/ThemeSwitch';
 import { db, deleteById, getAll, chatId, type ChatHistoryItem } from '~/lib/persistence';
+import { initProviderStore, isProviderConfigured } from '~/lib/stores/providers';
 import { cubicEasingFn } from '~/utils/easings';
 import { logger } from '~/utils/logger';
 import { HistoryItem } from './HistoryItem';
@@ -37,6 +40,13 @@ export function Menu() {
   const [list, setList] = useState<ChatHistoryItem[]>([]);
   const [open, setOpen] = useState(false);
   const [dialogContent, setDialogContent] = useState<DialogContent>(null);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const providerConfigured = useStore(isProviderConfigured);
+
+  // initialize provider store on mount
+  useEffect(() => {
+    initProviderStore();
+  }, []);
 
   const loadEntries = useCallback(() => {
     if (db) {
@@ -106,7 +116,7 @@ export function Menu() {
       variants={menuVariants}
       className="flex flex-col side-menu fixed top-0 w-[350px] h-full bg-bolt-elements-background-depth-2 border-r rounded-r-3xl border-bolt-elements-borderColor z-sidebar shadow-xl shadow-bolt-elements-sidebar-dropdownShadow text-sm"
     >
-      <div className="flex items-center h-[var(--header-height)]">{/* Placeholder */}</div>
+      <div className="flex items-center h-[var(--header-height)]">{/* placeholder */}</div>
       <div className="flex-1 flex flex-col h-full w-full overflow-hidden">
         <div className="p-4">
           <a
@@ -162,9 +172,19 @@ export function Menu() {
             </Dialog>
           </DialogRoot>
         </div>
-        <div className="flex items-center border-t border-bolt-elements-borderColor p-4">
-          <ThemeSwitch className="ml-auto" />
+        <div className="flex items-center justify-between border-t border-bolt-elements-borderColor p-4">
+          <button
+            onClick={() => setSettingsOpen(true)}
+            className="flex items-center gap-2 text-bolt-elements-textSecondary hover:text-bolt-elements-textPrimary transition-colors"
+            title="LLM Provider Settings"
+          >
+            <div className="i-ph:gear text-xl" />
+            <span className="text-sm">Settings</span>
+            {providerConfigured && <div className="w-2 h-2 rounded-full bg-green-500" title="Provider configured" />}
+          </button>
+          <ThemeSwitch />
         </div>
+        <ProviderSettings open={settingsOpen} onClose={() => setSettingsOpen(false)} />
       </div>
     </motion.div>
   );
