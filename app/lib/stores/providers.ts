@@ -10,11 +10,25 @@ export interface ProviderConfig {
 
 const STORAGE_KEY = 'x-builder-llm-provider';
 
-// default models per provider
+// default models per provider (updated Jan 2026)
 export const DEFAULT_MODELS: Record<LLMProvider, string> = {
-  openrouter: 'anthropic/claude-3.5-sonnet',
-  openai: 'gpt-4o',
-  anthropic: 'claude-3-5-sonnet-20240620',
+  openrouter: 'openai/gpt-4.1',
+  openai: 'gpt-4.1',
+  anthropic: 'claude-sonnet-4-20250514',
+};
+
+// popular models per provider for UI suggestions
+export const POPULAR_MODELS: Record<LLMProvider, string[]> = {
+  openrouter: [
+    'openai/gpt-4.1',
+    'openai/gpt-4.1-mini',
+    'anthropic/claude-sonnet-4-20250514',
+    'anthropic/claude-3.5-sonnet',
+    'google/gemini-2.5-pro-preview-06-05',
+    'meta-llama/llama-4-maverick',
+  ],
+  openai: ['gpt-4.1', 'gpt-4.1-mini', 'gpt-4.1-nano', 'o3-mini', 'gpt-4o'],
+  anthropic: ['claude-sonnet-4-20250514', 'claude-3-5-sonnet-20241022', 'claude-3-opus-20240229'],
 };
 
 // load from localStorage

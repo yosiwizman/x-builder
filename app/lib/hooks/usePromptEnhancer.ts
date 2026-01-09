@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { getProviderHeaders } from '~/lib/stores/providers';
 import { createScopedLogger } from '~/utils/logger';
 
 const logger = createScopedLogger('usePromptEnhancement');
@@ -18,6 +19,10 @@ export function usePromptEnhancer() {
 
     const response = await fetch('/api/enhancer', {
       method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...getProviderHeaders(),
+      },
       body: JSON.stringify({
         message: input,
       }),

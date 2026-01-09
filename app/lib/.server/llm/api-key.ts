@@ -1,5 +1,5 @@
 import { env } from 'node:process';
-import type { LLMProvider } from './providers';
+import { DEFAULT_MODELS, type LLMProvider } from './providers';
 
 export interface LLMConfig {
   provider: LLMProvider;
@@ -37,7 +37,7 @@ export function getLLMConfig(request: Request, cloudflareEnv: Env): LLMConfig | 
     return {
       provider: 'anthropic',
       apiKey: envApiKey,
-      model: 'claude-3-5-sonnet-20240620',
+      model: DEFAULT_MODELS.anthropic,
     };
   }
 
@@ -48,23 +48,7 @@ export function getLLMConfig(request: Request, cloudflareEnv: Env): LLMConfig | 
  * Get default model for a provider.
  */
 function getDefaultModel(provider: LLMProvider): string {
-  switch (provider) {
-    case 'openrouter': {
-      return 'anthropic/claude-3.5-sonnet';
-    }
-
-    case 'openai': {
-      return 'gpt-4o';
-    }
-
-    case 'anthropic': {
-      return 'claude-3-5-sonnet-20240620';
-    }
-
-    default: {
-      return 'claude-3-5-sonnet-20240620';
-    }
-  }
+  return DEFAULT_MODELS[provider] || DEFAULT_MODELS.anthropic;
 }
 
 /**
