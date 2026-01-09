@@ -1,4 +1,4 @@
-import { map } from 'nanostores';
+import { atom, map } from 'nanostores';
 import { workbenchStore } from './workbench';
 
 export interface Shortcut {
@@ -37,3 +37,20 @@ shortcutsStore.subscribe((shortcuts) => {
     shortcuts,
   });
 });
+
+// provider settings dialog state (controlled globally so chat can open it)
+export const providerSettingsOpen = atom<boolean>(false);
+
+/**
+ * Open the provider settings dialog.
+ */
+export function openProviderSettings(): void {
+  providerSettingsOpen.set(true);
+}
+
+/**
+ * Close the provider settings dialog.
+ */
+export function closeProviderSettings(): void {
+  providerSettingsOpen.set(false);
+}

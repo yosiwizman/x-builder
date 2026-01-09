@@ -5,6 +5,7 @@ import { CONTINUE_PROMPT } from '~/lib/.server/llm/prompts';
 import { isValidProvider, redactApiKey } from '~/lib/.server/llm/providers';
 import { streamText, type Messages, type StreamingOptions } from '~/lib/.server/llm/stream-text';
 import SwitchableStream from '~/lib/.server/llm/switchable-stream';
+import { createLLMErrorResponse, LLM_ERROR_CODES, type LLMErrorCode, parseProviderError } from '~/lib/llm-errors';
 
 export async function action(args: ActionFunctionArgs) {
   return chatAction(args);
@@ -27,24 +28,12 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
 
   // validate configuration
   if (!llmConfig) {
-    return json(
-      {
-        error: 'No LLM provider configured. Please set up your API key in Settings.',
-        code: 'NO_LLM_CONFIG',
-      },
-      { status: 401 },
-    );
+    return json(createLLMErrorResponse(LLM_ERROR_CODES.NO_LLM_CONFIG), { status: 401 });
   }
 
   // validate provider
   if (!isValidProvider(llmConfig.provider)) {
-    return json(
-      {
-        error: `Invalid LLM provider: ${llmConfig.provider}. Supported: openrouter, openai, anthropic`,
-        code: 'INVALID_PROVIDER',
-      },
-      { status: 400 },
-    );
+    return json(createLLMErrorResponse(LLM_ERROR_CODES.INVALID_PROVIDER, llmConfig.provider), { status: 400 });
   }
 
   // log provider info (never log API key!)
@@ -98,13 +87,12 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
 
     console.error('[Chat] Error:', redactedMessage);
 
-    return json(
-      {
-        error: 'Failed to process chat request. Please check your API key and try again.',
-        code: 'CHAT_ERROR',
-      },
-      { status: 500 },
-    );
+    // parse the error to determine the appropriate error code
+    const errorCode = parseProviderError(errorMessage, extractStatusCode(error));
+
+    return json(createLLMErrorResponse(errorCode, llmConfig.provider, llmConfig.model), {
+      status: getHttpStatus(errorCode),
+    });
   }
 }
 
@@ -114,4 +102,46 @@ async function chatAction({ context, request }: ActionFunctionArgs) {
  */
 function redactApiKeyFromError(message: string): string {
   return message.replace(/sk-[a-zA-Z0-9_-]{10,}/g, '[REDACTED_KEY]');
+}
+
+/**
+ * Extract HTTP status code from an error object.
+ */
+function extractStatusCode(error: unknown): number | undefined {
+  if (error && typeof error === 'object') {
+    if ('status' in error && typeof error.status === 'number') {
+      return error.status;
+    }
+
+    if ('statusCode' in error && typeof error.statusCode === 'number') {
+      return error.statusCode;
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Map LLM error code to HTTP status code.
+ */
+function getHttpStatus(code: LLMErrorCode): number {
+  switch (code) {
+    case LLM_ERROR_CODES.NO_LLM_CONFIG:
+    case LLM_ERROR_CODES.INVALID_API_KEY: {
+      return 401;
+    }
+
+    case LLM_ERROR_CODES.INVALID_PROVIDER:
+    case LLM_ERROR_CODES.MODEL_ERROR: {
+      return 400;
+    }
+
+    case LLM_ERROR_CODES.RATE_LIMIT: {
+      return 429;
+    }
+
+    default: {
+      return 500;
+    }
+  }
 }

@@ -73,8 +73,25 @@ Leave the Model field empty to use the default.
 ### What You'll See
 
 - **Success**: AI generates code, files appear in the editor, preview updates live
-- **401 Error**: Check your API key in Settings
-- **Rate Limit**: Wait a moment or check your provider's usage limits
+- **Error Banner**: Clear, actionable error messages appear above the chat input with a Settings button when needed
+
+### Troubleshooting
+
+| Error | Code | Cause | Fix |
+|-------|------|-------|-----|
+| No LLM Configured | `NO_LLM_CONFIG` | No API key set | Open Settings, add your API key |
+| Invalid API Key | `INVALID_API_KEY` | Key rejected by provider | Check key in Settings, ensure correct provider |
+| Model Error | `MODEL_ERROR` | Model unavailable or unsupported | Change model in Settings |
+| Rate Limit | `RATE_LIMIT` | Too many requests | Wait and retry |
+| Provider Error | `PROVIDER_ERROR` | Upstream provider issue | Retry, check provider status |
+| Network Error | `NETWORK_ERROR` | Connection failed | Check internet, retry |
+
+**Common Issues**:
+
+1. **"No LLM configured" banner appears**: You haven't added your API key yet. Click the Settings button in the banner.
+2. **Key rejected after pasting**: Make sure you selected the correct provider (OpenRouter keys start with `sk-or-`, OpenAI with `sk-`, Anthropic with `sk-ant-`).
+3. **Model not found**: The model name may be incorrect. Leave it empty to use the default, or check the provider's documentation.
+4. **Sparkle/enhance button doesn't work**: Same as chat - requires a valid provider and key configured.
 
 ### Key Security
 
